@@ -44,3 +44,14 @@ Record important decisions and the reasoning behind them.
 - **Full refresh each run:** a ticker's whole history is replaced, because Yahoo rewrites past adjusted prices after dividends and splits.
 - **Market cap: today's value only** (Yahoo has no history). Table `ticker_info`, which also holds currency, exchange, first and last price dates, row count and the zero-volume share.
 - **Thinly traded stocks are kept and flagged** (`zero_volume_share_2y`). The rule for excluding them from the event study will be decided in stage 5.
+
+## 2026-11-11 - Catalyst calendar and impact score (stage 5, part 1)
+- **Which trials:** open trials (recruiting, active, not yet recruiting, enrolling by invitation) whose sponsor has a US ticker, with a primary completion date in the next 12 months ("upcoming"), plus every open trial whose date has already passed ("past date" section). Trials without a ticker are left out because investors can't trade them.
+- **Catalyst date** = the primary completion date, unchanged, labeled "expected primary completion". Top-line results usually follow weeks to months later; we don't guess that gap.
+- **Impact score (0-100)** = 100 x (0.5 x company size + 0.3 x concentration + 0.2 x phase):
+  - Company size: log scale of today's market cap; $50M or less = 1, $500B or more = 0.
+  - Concentration: 1 / the company's open Phase 2/3 trials in **all** diseases (ClinicalTrials.gov lookup by lead-sponsor name), never fewer than the open trials in our own data.
+  - Phase: Phase 3 = 1.0, Phase 2/3 = 0.8, Phase 2 = 0.5.
+  - Unknown market cap -> no score (not a guess).
+- **Warning flags** don't change the score: overdue, data collected, month-only date, thinly traded (>5% zero-volume days), no market cap.
+- No new database table: the calendar is calculated on demand and saved as `data/clean/catalysts_<date>.csv` for checking.

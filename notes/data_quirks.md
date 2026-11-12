@@ -24,3 +24,11 @@
 - XBI has no market cap (it's a fund, not a company); that's expected.
 - Market caps range from about $0.8M (EVFM) to $1.28T (LLY).
 - In the combined yfinance table, days before a stock existed are blank rows; `split_download` drops them.
+
+## Catalyst calendar (seen 2026-11-11)
+- 81 upcoming catalysts and 23 with a past date. Scores range from 10.2 (Lilly Phase 2) to 93.3 (Oramed Phase 3); the median is 24.
+- The "past date" section includes very old "data collected" trials (e.g. an AstraZeneca trial with primary completion in 2016 that is still "active", probably a long follow-up). Their results are almost certainly public already.
+- Counting open trials across all diseases changes concentration a lot: AZN 242, NVS 157, LLY 140, versus 13-51 in our obesity/diabetes data.
+- Sponsor-name lookup is phrase-based, so "Sanofi" also counts "Sanofi Pasteur" (same company). Abbott returned 0, so it falls back to our own count.
+- Hansoh (HNPHY) trials are unscored because Yahoo has no market cap.
+- Watch out: a pandas column named `flags` must be read as `df["flags"]`, not `df.flags` (`.flags` is a built-in pandas attribute).
