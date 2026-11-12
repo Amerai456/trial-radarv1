@@ -1,4 +1,9 @@
-"""Stage 4a - Enrich: match each trial sponsor to a US stock ticker.
+"""Stage 4 - Enrich: match sponsors to US stock tickers, then get stock prices.
+
+Part A (matching) and Part B (prices) both run with:
+    python -m src.enrich
+
+PART A - match each trial sponsor to a US stock ticker.
 
 Sources:
   - The SEC's official list of US-listed companies and their tickers
@@ -17,20 +22,26 @@ Each sponsor is matched in three tries, most reliable first:
 
 Results go into the sponsor_tickers table in data/trials.db, and the
 borderline ones into data/reference/matches_to_review.csv.
-(Decisions logged in notes/decisions.md, 2026-11-11.)
+PART B - download daily stock prices for every matched ticker plus the XBI
+biotech fund (the benchmark), from 2006 on, using yfinance. Each run
+replaces each ticker's whole price history, because Yahoo rewrites old
+adjusted prices after dividends and splits. Also records today's market cap
+and how often each stock has days with no trading at all.
 
-Run it from the project folder with:
-    python -m src.enrich
+(Decisions logged in notes/decisions.md, 2026-11-11.)
 """
 
 import csv
 import json
 import re
+import time
+import warnings
 from datetime import date
 from pathlib import Path
 
 import pandas as pd
 import requests
+import yfinance as yf
 from rapidfuzz import fuzz, process
 
 from src.store import DB_PATH, connect
@@ -273,7 +284,191 @@ def write_review_file(matches):
     return len(review)
 
 
-def main():
+# =========================================================================
+# PART B - stock prices
+# =========================================================================
+
+BENCHMARK = "XBI"            # SPDR S&P Biotech ETF; its prices start Feb 2006
+PRICE_START = "2006-01-01"   # earlier prices can't be compared with XBI
+BATCH_SIZE = 20              # tickers per yfinance request
+PRICE_PAUSE_SECONDS = 2      # polite pause between batches
+INFO_PAUSE_SECONDS = 0.3     # pause between market-cap lookups
+
+CREATE_PRICES = """
+CREATE TABLE IF NOT EXISTS prices (
+    ticker     TEXT NOT NULL,
+    date       TEXT NOT NULL,     -- trading day, "YYYY-MM-DD"
+    close      REAL,              -- the price as quoted that day
+    adj_close  REAL,              -- corrected for splits and dividends: use for returns
+    volume     INTEGER,           -- shares traded that day (0 = no trading)
+    PRIMARY KEY (ticker, date)
+)
+"""
+
+CREATE_TICKER_INFO = """
+CREATE TABLE IF NOT EXISTS ticker_info (
+    ticker                TEXT PRIMARY KEY,
+    market_cap            REAL,      -- today's value only (Yahoo has no history)
+    currency              TEXT,
+    exchange              TEXT,      -- e.g. NYQ = NYSE, NMS = Nasdaq, PNK = over-the-counter
+    first_price_date      TEXT,
+    last_price_date       TEXT,
+    price_rows            INTEGER,   -- 0 means the download failed
+    zero_volume_share_2y  REAL,      -- share of the last 2 years with no trading (0-1)
+    updated_on            TEXT
+)
+"""
+
+
+def download_batch(tickers):
+    """Ask yfinance for daily prices of several tickers at once.
+
+    auto_adjust=False keeps BOTH the quoted close and the adjusted close.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return yf.download(
+            tickers, start=PRICE_START, auto_adjust=False, group_by="ticker",
+            progress=False, threads=False,
+        )
+
+
+def split_download(data, tickers):
+    """Turn yfinance's combined table into {ticker: that ticker's own table}.
+
+    The combined table has every ticker side by side on the same dates, so a
+    stock that started trading in 2017 has blank rows before 2017. We drop
+    those blanks. A ticker that failed comes back empty.
+    """
+    result = {}
+    for ticker in tickers:
+        if data is None or data.empty:
+            result[ticker] = pd.DataFrame()
+            continue
+        try:
+            if isinstance(data.columns, pd.MultiIndex):
+                frame = data[ticker]
+            else:
+                frame = data   # only one ticker was downloaded
+            frame = frame[["Close", "Adj Close", "Volume"]].dropna(subset=["Adj Close"])
+        except KeyError:
+            frame = pd.DataFrame()
+        result[ticker] = frame
+    return result
+
+
+def zero_volume_share(frame, as_of, years=2):
+    """Share of trading days in the last `years` years with zero volume.
+
+    A stock that rarely trades shows the same price day after day, which
+    looks like a "0% move" and would fake a "no reaction" in the event study.
+    """
+    if frame.empty:
+        return None
+    cutoff = pd.Timestamp(as_of) - pd.DateOffset(years=years)
+    recent = frame[frame.index >= cutoff]
+    if recent.empty:
+        return None
+    return round(float((recent["Volume"].fillna(0) == 0).mean()), 4)
+
+
+def price_rows(ticker, frame):
+    """Turn one ticker's table into database rows."""
+    rows = []
+    for day, values in frame.iterrows():
+        volume = values["Volume"]
+        rows.append((
+            ticker,
+            day.date().isoformat(),
+            float(values["Close"]) if pd.notna(values["Close"]) else None,
+            float(values["Adj Close"]),
+            int(volume) if pd.notna(volume) else None,
+        ))
+    return rows
+
+
+def fetch_market_info(ticker):
+    """Today's market cap, currency and exchange. Blanks if Yahoo has none."""
+    try:
+        info = yf.Ticker(ticker).fast_info
+        market_cap = info.get("marketCap")
+        return {
+            "market_cap": float(market_cap) if market_cap else None,
+            "currency": info.get("currency"),
+            "exchange": info.get("exchange"),
+        }
+    except Exception:   # yfinance raises many different errors for missing data
+        return {"market_cap": None, "currency": None, "exchange": None}
+
+
+def download_all_prices(tickers, download=download_batch):
+    """Download every ticker in batches; retry the failed ones once.
+
+    Returns {ticker: price table}; failed tickers have an empty table.
+    `download` can be swapped for a fake one in tests.
+    """
+    frames = {}
+    batches = [tickers[i:i + BATCH_SIZE] for i in range(0, len(tickers), BATCH_SIZE)]
+    for number, batch in enumerate(batches, start=1):
+        print(f"  price batch {number} of {len(batches)} ({len(batch)} tickers)...")
+        frames.update(split_download(download(batch), batch))
+        time.sleep(PRICE_PAUSE_SECONDS)
+
+    failed = [t for t, f in frames.items() if f.empty]
+    if failed:
+        print(f"  retrying {len(failed)} failed ticker(s) one at a time...")
+        for ticker in failed:
+            time.sleep(PRICE_PAUSE_SECONDS)
+            frames.update(split_download(download([ticker]), [ticker]))
+    return frames
+
+
+def save_prices(frames, infos, run_date, db_path=DB_PATH):
+    """Replace each ticker's price history and info row, all in one transaction."""
+    conn = connect(db_path)
+    try:
+        with conn:
+            conn.execute(CREATE_PRICES)
+            conn.execute(CREATE_TICKER_INFO)
+            for ticker, frame in frames.items():
+                if not frame.empty:
+                    # Full refresh: old adjusted prices may have been rewritten.
+                    conn.execute("DELETE FROM prices WHERE ticker = ?", (ticker,))
+                    conn.executemany(
+                        "INSERT INTO prices (ticker, date, close, adj_close, volume) "
+                        "VALUES (?, ?, ?, ?, ?)", price_rows(ticker, frame))
+                info = infos.get(ticker, {})
+                conn.execute(
+                    "INSERT OR REPLACE INTO ticker_info (ticker, market_cap, currency, "
+                    "exchange, first_price_date, last_price_date, price_rows, "
+                    "zero_volume_share_2y, updated_on) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        ticker, info.get("market_cap"), info.get("currency"),
+                        info.get("exchange"),
+                        frame.index.min().date().isoformat() if not frame.empty else None,
+                        frame.index.max().date().isoformat() if not frame.empty else None,
+                        len(frame), zero_volume_share(frame, run_date), run_date,
+                    ),
+                )
+    finally:
+        conn.close()
+
+
+def update_prices(tickers, run_date, db_path=DB_PATH,
+                  download=download_batch, get_info=fetch_market_info):
+    """Part B from start to finish. Returns the list of tickers that failed."""
+    frames = download_all_prices(tickers, download=download)
+    print("  looking up market caps...")
+    infos = {}
+    for ticker in tickers:
+        infos[ticker] = get_info(ticker)
+        time.sleep(INFO_PAUSE_SECONDS)
+    save_prices(frames, infos, run_date, db_path=db_path)
+    return [t for t, f in frames.items() if f.empty]
+
+
+def match_step(run_date):
+    """Part A from start to finish (sponsor -> ticker matching)."""
     companies = load_sec_companies()
     aliases = load_aliases()
     print(f"SEC list: {len(companies)} companies | alias list: {len(aliases)} sponsors")
@@ -285,7 +480,7 @@ def main():
     conn.close()
 
     matches = match_all_sponsors(sponsor_counts, companies, aliases)
-    save_matches(matches, date.today().isoformat())
+    save_matches(matches, run_date)
     n_review = write_review_file(matches)
 
     with_ticker = matches["ticker"].notna()
@@ -294,7 +489,33 @@ def main():
     print(f"\nSponsors with a ticker: {with_ticker.sum()} of {len(matches)}")
     print(f"Trials covered by a ticker: {matches.loc[with_ticker, 'trial_count'].sum()} "
           f"of {matches['trial_count'].sum()}")
-    print(f"{n_review} borderline matches to check in {REVIEW_FILE}")
+    print(f"{n_review} possible matches to check in {REVIEW_FILE}")
+    return sorted(matches["ticker"].dropna().unique())
+
+
+def main():
+    run_date = date.today().isoformat()
+
+    print("PART A: matching sponsors to tickers")
+    tickers = match_step(run_date)
+
+    all_tickers = [BENCHMARK] + [t for t in tickers if t != BENCHMARK]
+    print(f"\nPART B: downloading prices for {len(all_tickers)} tickers "
+          f"(including {BENCHMARK}) from {PRICE_START}")
+    failed = update_prices(all_tickers, run_date)
+
+    conn = connect()
+    n_rows = conn.execute("SELECT COUNT(*) FROM prices").fetchone()[0]
+    thin = conn.execute(
+        "SELECT ticker, zero_volume_share_2y FROM ticker_info "
+        "WHERE zero_volume_share_2y > 0.05 ORDER BY zero_volume_share_2y DESC").fetchall()
+    conn.close()
+
+    print(f"\nPrice rows in database: {n_rows}")
+    print(f"Tickers with no price data: {failed if failed else 'none'}")
+    print("Thinly traded (no trading on more than 5% of days in the last 2 years):")
+    for ticker, share in thin:
+        print(f"  {ticker:6} {share:.0%}")
 
 
 if __name__ == "__main__":

@@ -16,3 +16,11 @@
 - SEC names carry state or ADR tags after a slash ("VERTEX PHARMACEUTICALS INC / MA", "Zealand Pharma A/S/ADR"); the name cleanup strips them.
 - Some tickers are OTC ADRs (e.g. JHPCY, ZLDPF, MCUJF) or bankruptcy tickers ending in Q (SGMOQ): price data for these may be thin.
 - Coverage on 2026-11-11 (after approving 10 review matches): 83 of 436 sponsors have a ticker, covering 1,709 of 2,747 trials (62%); 200 of 358 open trials have a ticker.
+
+## yfinance prices (seen 2026-11-11)
+- 78 tickers (77 sponsor tickers + XBI), 293,490 daily rows, about 75 seconds to download. The database grew to about 23 MB.
+- HNPHY (Hansoh ADR) has no Yahoo data ("possibly delisted"), so Hansoh trials have no prices.
+- Thin trading (share of the last 2 years with zero volume): JHPCY 89% (Hengrui; trading only since 2026-04), MCUJF 68%, ZLDPF 40%. All other tickers are under 5%.
+- XBI has no market cap (it's a fund, not a company); that's expected.
+- Market caps range from about $0.8M (EVFM) to $1.28T (LLY).
+- In the combined yfinance table, days before a stock existed are blank rows; `split_download` drops them.

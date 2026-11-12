@@ -36,3 +36,11 @@ Record important decisions and the reasoning behind them.
 - **Fuzzy matches are never accepted automatically** (this replaces the original "95+ auto-accept" rule). Even when comparing only distinctive words, about 1 in 7 perfect-score fuzzy matches was a different company (Lotus Pharmaceutical -> Lotus Technology, Hudson Biotech -> Hudson Technologies). All fuzzy matches scoring 85+ go to `data/reference/matches_to_review.csv`, and approving one means adding it to the alias list.
 - **Fuzzy compares distinctive words only.** Generic words like "Pharmaceuticals" and "Therapeutics" are ignored. Before this change, "Novartis Pharmaceuticals" matched "ARS Pharmaceuticals".
 - **SEC contact line:** `Amerai456 Amerai456@users.noreply.github.com`.
+
+## 2026-11-11 - Stock prices (stage 4b)
+- **Source:** yfinance (unofficial Yahoo data, which can occasionally break or slow down). Covers every matched ticker plus **XBI** as the benchmark.
+- **Start date:** 2006-01-01. XBI's prices begin 2006-02-06, so earlier events can't be measured against it.
+- **Stored per day:** close, adjusted close (corrected for splits and dividends; use it for all returns) and volume. Table `prices`, key (ticker, date).
+- **Full refresh each run:** a ticker's whole history is replaced, because Yahoo rewrites past adjusted prices after dividends and splits.
+- **Market cap: today's value only** (Yahoo has no history). Table `ticker_info`, which also holds currency, exchange, first and last price dates, row count and the zero-volume share.
+- **Thinly traded stocks are kept and flagged** (`zero_volume_share_2y`). The rule for excluding them from the event study will be decided in stage 5.
