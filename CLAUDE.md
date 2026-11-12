@@ -44,7 +44,12 @@ app.py       Streamlit dashboard
 6. Present: Streamlit dashboard reading from the database. Include a "not investment advice" disclaimer.
 
 ## Current phase
-Phase: setup and API exploration (stages 1-3 for one or two diseases only).
+Phase: stage 4, Enrich (sponsor -> ticker matching, stock prices).
+
+Done so far (2026-11-11): stages 1-3 for obesity, type 1 diabetes and type 2 diabetes.
+2,747 unique trials are in `data/trials.db`, with the first snapshot dated 2026-11-11.
+Run the pipeline with `python -m src.fetch`, then `python -m src.store` (store runs the cleaning itself; `python -m src.clean` only writes a CSV for checking).
+Snapshot history only builds up over repeated runs, so plan regular (e.g. weekly) runs.
 
 ## Decisions log
 Record important decisions and the reasoning in `notes/decisions.md`.
