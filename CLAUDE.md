@@ -44,12 +44,23 @@ app.py       Streamlit dashboard
 6. Present: Streamlit dashboard reading from the database. Include a "not investment advice" disclaimer.
 
 ## Current phase
-Phase: stage 4, Enrich (sponsor -> ticker matching, stock prices).
+Phase: stage 5, Analyze (catalyst calendar + impact score, event study, date-slippage analysis). Plan each piece separately, because they carry the biggest design decisions (impact score, event dates, exclusion rules).
 
-Done so far (2026-11-11): stages 1-3 for obesity, type 1 diabetes and type 2 diabetes.
-2,747 unique trials are in `data/trials.db`, with the first snapshot dated 2026-11-11.
-Run the pipeline with `python -m src.fetch`, then `python -m src.store` (store runs the cleaning itself; `python -m src.clean` only writes a CSV for checking).
-Snapshot history only builds up over repeated runs, so plan regular (e.g. weekly) runs.
+Done so far (2026-11-11): stages 1-4 for obesity, type 1 diabetes and type 2 diabetes.
+- 2,747 unique trials are in `data/trials.db`, with the first snapshot dated 2026-11-11.
+- 83 of 436 sponsors are matched to US tickers (62% of trials; 200 of 358 open trials). Table `sponsor_tickers`.
+- Daily prices from 2006 for 77 tickers + XBI are in table `prices`; today's market cap and thin-trading flags are in `ticker_info`.
+
+Run the pipeline in this order:
+1. `python -m src.fetch`
+2. `python -m src.store` (runs the cleaning itself; `python -m src.clean` only writes a CSV for checking)
+3. `python -m src.enrich` (matching + prices)
+
+Other things to know:
+- **SEC ticker list:** it's saved by hand to `data/reference/company_tickers.json` because the SEC blocks the automatic download.
+- **Matching:** new fuzzy matches go to `data/reference/matches_to_review.csv`. Approve or reject them by adding a row to `reference/sponsor_aliases.csv`.
+- **Open item:** 5 alias rows are marked VERIFY (Hengrui group, Zealand, Hansoh).
+- **Snapshots:** history only builds up over repeated runs, so plan regular (e.g. weekly) runs.
 
 ## Decisions log
 Record important decisions and the reasoning in `notes/decisions.md`.
