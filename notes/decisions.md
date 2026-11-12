@@ -27,3 +27,12 @@ Record important decisions and the reasoning behind them.
 - Trials that stop matching the search are **kept** in `trials`. Their `last_seen_date` stops moving, so no history is lost.
 - Dates are stored as `YYYY-MM-DD` text, because SQLite has no date type and this format sorts correctly.
 - History starts 2026-11-11, and slippage analysis needs repeated (e.g. weekly) runs.
+
+## 2026-11-11 - Sponsor -> ticker matching (stage 4a)
+- **Markets:** US-listed only, meaning companies in the SEC's `company_tickers.json` (this includes foreign companies with US shares, called ADRs). Sponsors with only a foreign listing (most Chinese, Korean and Japanese sponsors, Bayer, Roche) and private companies (e.g. Boehringer Ingelheim) stay unmatched. Reason: the XBI benchmark is a US fund, and foreign stocks trade in other currencies and hours.
+- **Subsidiaries -> parent ticker** through a hand-checked alias list, `reference/sponsor_aliases.csv` (committed to Git). A blank ticker means "checked: no US listing". Rows marked VERIFY need confirming.
+- **Acquired or bankrupt companies stay unmatched** (e.g. Solvay -> Abbott, Orexigen). Their old trials can't be used in the event study.
+- **Matching order:** alias list -> exact cleaned name -> fuzzy.
+- **Fuzzy matches are never accepted automatically** (this replaces the original "95+ auto-accept" rule). Even when comparing only distinctive words, about 1 in 7 perfect-score fuzzy matches was a different company (Lotus Pharmaceutical -> Lotus Technology, Hudson Biotech -> Hudson Technologies). All fuzzy matches scoring 85+ go to `data/reference/matches_to_review.csv`, and approving one means adding it to the alias list.
+- **Fuzzy compares distinctive words only.** Generic words like "Pharmaceuticals" and "Therapeutics" are ignored. Before this change, "Novartis Pharmaceuticals" matched "ARS Pharmaceuticals".
+- **SEC contact line:** `Amerai456 Amerai456@users.noreply.github.com`.

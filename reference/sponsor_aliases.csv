@@ -1,0 +1,47 @@
+sponsor_name,ticker,note
+Merck Sharp & Dohme LLC,MRK,Subsidiary of Merck & Co.
+Boehringer Ingelheim,,Private company (family-owned)
+Takeda,TAK,Takeda Pharmaceutical ADR
+GlaxoSmithKline,GSK,Old name of GSK plc
+Novartis Pharmaceuticals,NVS,Novartis US unit
+Hoffmann-La Roche,,Listed in Switzerland; US OTC ticker RHHBY is not in the SEC list
+"Jiangsu HengRui Medicine Co., Ltd.",JHPCY,"VERIFY: SEC list has a Hengrui ADR (likely OTC, thinly traded)"
+Astellas Pharma Inc,,Listed in Tokyo; not in SEC list
+"Janssen Research & Development, LLC",JNJ,Subsidiary of Johnson & Johnson
+Tanabe Pharma Corporation,,Japanese company; not in SEC list
+"Fujian Shengdi Pharmaceutical Co., Ltd.",JHPCY,VERIFY: believed to be a Hengrui subsidiary
+"Johnson & Johnson Pharmaceutical Research & Development, L.L.C.",JNJ,Subsidiary of Johnson & Johnson
+Daiichi Sankyo,,Listed in Tokyo; not in SEC list
+Bayer,,Listed in Germany; not in SEC list
+"Hangzhou Zhongmei Huadong Pharmaceutical Co., Ltd.",,Listed in China; not in SEC list
+Gan & Lee Pharmaceuticals.,,Listed in China; not in SEC list
+"Gan and Lee Pharmaceuticals, USA",,US unit of Gan & Lee (listed in China)
+Innovent Biologics (Suzhou) Co. Ltd.,,Listed in Hong Kong; not in SEC list
+Solvay Pharmaceuticals,,Acquired by Abbott in 2010; acquired companies stay unmatched
+"Oramed, Ltd.",ORMP,Subsidiary of Oramed Pharmaceuticals Inc.
+"Orexigen Therapeutics, Inc",,Bankrupt 2018; no longer listed
+Daewoong Pharmaceutical Co. LTD.,,Listed in Korea; not in SEC list
+Laboratorios Silanes S.A. de C.V.,,Private Mexican company
+Hanmi Pharmaceutical Company Limited,,Listed in Korea; not in SEC list
+Theracos,,Private company
+EMS,,Private Brazilian company
+Intarcia Therapeutics,,Private company
+Xeris Pharmaceuticals,XERS,Now Xeris Biopharma Holdings
+"Shandong Suncadia Medicine Co., Ltd.",JHPCY,VERIFY: believed to be a Hengrui subsidiary
+Biodel,,Merged/acquired; no longer listed
+Zealand Pharma,ZLDPF,VERIFY: SEC list has a Zealand ADR (likely OTC); main listing Copenhagen
+"Hangzhou Sciwind Biosciences Co., Ltd.",,Chinese company; not in SEC list
+LG Life Sciences,,Merged into LG Chem (Korea); not in SEC list
+"BrightGene Bio-Medical Technology Co., Ltd.",,Listed in China; not in SEC list
+"Kyowa Kirin Co., Ltd.",,Listed in Tokyo; not in SEC list
+Abbott Nutrition,ABT,Division of Abbott Laboratories
+Abbott,ABT,Abbott Laboratories
+Phenomix,,Private company; no longer operating
+VIVUS LLC,,Delisted after 2020 bankruptcy
+MedImmune LLC,AZN,Subsidiary of AstraZeneca
+"CSPC Baike (Shandong) Biopharmaceutical Co., Ltd.",,"CSPC group, listed in Hong Kong"
+"The United Bio-Technology (Hengqin) Co., Ltd.",,Chinese company; not in SEC list
+"Jiangsu Hansoh Pharmaceutical Co., Ltd.",HNPHY,VERIFY: unit of Hansoh Pharmaceutical Group; SEC list has its ADR (likely OTC)
+Dompé Farmaceutici S.p.A,,Private Italian company
+"CSPC ZhongQi Pharmaceutical Technology Co., Ltd.",,"CSPC group, listed in Hong Kong"
+"Gasherbrum Bio, Inc., a wholly owned subsidiary of Structure Therapeutics",GPCR,Subsidiary of Structure Therapeutics

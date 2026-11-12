@@ -16,8 +16,11 @@ def make_companies():
         {"ticker": "NVO", "sec_name": "NOVO NORDISK A S", "cik": 353278},
         {"ticker": "MRK", "sec_name": "Merck & Co., Inc.", "cik": 310158},
         {"ticker": "RYTM", "sec_name": "Rhythm Pharmaceuticals, Inc.", "cik": 1649904},
+        {"ticker": "NVS", "sec_name": "NOVARTIS AG", "cik": 1114448},
+        {"ticker": "SPRY", "sec_name": "ARS Pharmaceuticals, Inc.", "cik": 1671858},
     ])
     companies["clean_name"] = companies["sec_name"].map(enrich.normalize_name)
+    companies["core_name"] = companies["clean_name"].map(enrich.core_name)
     return companies
 
 
@@ -28,6 +31,17 @@ def test_normalize_removes_legal_words_and_punctuation():
     assert enrich.normalize_name("ELI LILLY & Co") == "eli lilly"
     assert enrich.normalize_name("Novo Nordisk A/S") == "novo nordisk"
     assert enrich.normalize_name("NOVO NORDISK A S") == "novo nordisk"
+
+
+def test_normalize_strips_sec_state_and_adr_tags():
+    assert enrich.normalize_name("VERTEX PHARMACEUTICALS INC / MA") == "vertex pharmaceuticals"
+    assert enrich.normalize_name("HUDSON TECHNOLOGIES INC /NY") == "hudson technologies"
+    assert enrich.normalize_name("Zealand Pharma A/S/ADR") == "zealand pharma"
+
+
+def test_core_name_drops_generic_industry_words():
+    assert enrich.core_name("novartis pharmaceuticals") == "novartis"
+    assert enrich.core_name("xeris biopharma holdings") == "xeris"
 
 
 def test_normalize_handles_blank():
@@ -55,21 +69,24 @@ def test_blank_alias_means_known_no_listing():
     assert row["match_method"] == "alias"
 
 
-def test_close_spelling_is_accepted_as_fuzzy():
-    # One missing letter: very similar, score above 95.
-    row = enrich.match_sponsor("Rhythm Pharmaceutical, Inc.", make_companies(), {})
-    assert row["ticker"] == "RYTM"
-    assert row["match_method"] == "fuzzy"
-    assert row["match_score"] >= enrich.AUTO_ACCEPT_SCORE
-
-
-def test_borderline_match_goes_to_review_without_ticker(monkeypatch):
-    # Pretend the scorer returns 90 so we test the 85-94 band exactly.
-    monkeypatch.setattr(enrich.process, "extractOne", lambda *a, **k: ("eli lilly", 90.0, 0))
-    row = enrich.match_sponsor("Lilly Research Labs", make_companies(), {})
+def test_fuzzy_match_is_never_accepted_automatically():
+    # A perfect score on the distinctive word still only goes to review.
+    row = enrich.match_sponsor("Novartis Pharmaceuticals", make_companies(), {})
     assert row["match_method"] == "review"
     assert row["ticker"] is None
-    assert row["candidate_ticker"] == "LLY"
+    assert row["candidate_ticker"] == "NVS"
+    assert row["match_score"] == 100.0
+
+
+def test_shared_industry_word_does_not_create_a_match():
+    # Before the fix, "Novartis Pharmaceuticals" looked like "ARS Pharmaceuticals".
+    row = enrich.match_sponsor("Novartis Pharmaceuticals", make_companies(), {})
+    assert row["candidate_ticker"] != "SPRY"
+
+
+def test_name_of_only_generic_words_has_no_match():
+    row = enrich.match_sponsor("Pharmaceuticals Inc", make_companies(), {})
+    assert row["match_method"] == "none"
 
 
 def test_unrelated_name_has_no_match():
