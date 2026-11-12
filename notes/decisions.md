@@ -69,3 +69,13 @@ Record important decisions and the reasoning behind them.
 - **Impact score back-test:** the score is recalculated as of each event (size then, phase, and the company's trials in our data running that day as the concentration stand-in) and compared with |CAR| by rank (Spearman) correlation, done by hand to avoid adding scipy.
 - No new database table: results are saved to `data/clean/event_study_<date>.csv` and `event_study_summary_<date>.csv`.
 - **Known limitations:** survivorship bias (only companies still listed today are matched); one company's events can overlap in time (Novo has 177), which makes t-statistics look stronger than they are; CAR adds simple returns, so very big moves can exceed -100%.
+
+## 2026-11-12 - Date slippage (stage 5, part 3)
+- **Data source: our own weekly snapshots only.** ClinicalTrials.gov's change-history page blocks automated requests (403) and isn't part of the official API, so past date changes can't be downloaded. History starts with the first snapshot (2026-11-11); the first moves can be seen after the second run.
+- **A move** = a change in the primary completion date between two consecutive snapshots, in days (positive = later). Status changes and "finished" (estimated -> actual) are listed too.
+- **Not a move:** a change within the same month when either date is month-only (e.g. "March 2027" -> "March 15, 2027"), because month-only dates are stored as the last day of the month.
+- **Two comparisons:** previous snapshot -> "what changed this week" list; first snapshot -> each trial's total slip and each sponsor's reliability record. Final slip = the actual date minus the last estimate, when a trial finishes.
+- **Comparable trial** = seen in 2+ snapshots and its date was still an estimate when first seen (a finished trial can't slip).
+- **Sponsor reliability** (one row per ticker, or per sponsor name without a ticker): share of comparable trials delayed and median delay, shown only with at least **3** comparable trials; overdue-now count (open, estimated date already passed) always shown.
+- **Not part of the impact score for now.** Shown as a separate table; whether it should feed the score will be tested once months of history exist.
+- No new database table: calculated from `snapshots` and saved as `data/clean/slippage_{changes,trials,sponsors}_<date>.csv`.

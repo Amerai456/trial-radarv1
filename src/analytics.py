@@ -1,6 +1,7 @@
 """Stage 5 - Analyze.
 Part 1: catalyst calendar and impact score.
 Part 2: event study (how sponsor stocks moved around past trial completions).
+Part 3: date slippage (how often sponsors push their expected dates back).
 
 The catalyst calendar lists upcoming trial readouts that investors can
 trade: open trials whose sponsor has a US stock ticker, with an expected
@@ -22,6 +23,7 @@ shown next to the score but do not change it.
 Run it from the project folder with:
     python -m src.analytics           (catalyst calendar)
     python -m src.analytics events    (event study)
+    python -m src.analytics slippage  (date slippage)
 """
 
 import json
@@ -507,6 +509,157 @@ def score_backtest(events, window="post"):
     return score_rank.corr(move_rank)
 
 
+# ===========================================================================
+# Part 3: date slippage - do sponsors keep pushing their dates back?
+# ===========================================================================
+#
+# Every run of `python -m src.store` saves a snapshot of each trial's key
+# dates. Comparing snapshots shows when a sponsor moves a trial's expected
+# primary completion date. History started 2026-11-11, so this only shows
+# results after the second weekly run.
+# (Decisions logged in notes/decisions.md, 2026-11-12.)
+
+MIN_SPONSOR_TRIALS = 3   # fewer comparable trials -> too few to judge a sponsor
+
+SNAPSHOT_QUERY = """
+SELECT snapshot_date, nct_id, overall_status,
+       primary_completion_date AS pcd,
+       primary_completion_date_type AS pcd_type,
+       primary_completion_date_precision AS pcd_precision
+FROM snapshots
+"""
+
+TRIAL_INFO_QUERY = """
+SELECT t.nct_id, t.lead_sponsor, s.ticker, t.title, t.phase, t.overall_status,
+       t.primary_completion_date, t.primary_completion_date_type
+FROM trials t
+LEFT JOIN sponsor_tickers s ON s.sponsor_name = t.lead_sponsor
+"""
+
+
+def date_move_days(old_date, old_precision, new_date, new_precision):
+    """How many days a date moved: positive = later (a delay), negative =
+    earlier. None if either date is missing.
+
+    Month-only dates are stored as the month's last day, so "March 2027"
+    becoming "March 15, 2027" would look like a 16-day pull-in. A change
+    within the same month where either date is month-only counts as 0."""
+    if not isinstance(old_date, str) or not isinstance(new_date, str):
+        return None
+    if "month" in (old_precision, new_precision) and old_date[:7] == new_date[:7]:
+        return 0
+    return (date.fromisoformat(new_date) - date.fromisoformat(old_date)).days
+
+
+def snapshot_pairs(snaps):
+    """Each snapshot of a trial next to the trial's previous snapshot."""
+    snaps = snaps.sort_values(["nct_id", "snapshot_date"]).reset_index(drop=True)
+    fields = ["snapshot_date", "overall_status", "pcd", "pcd_type", "pcd_precision"]
+    previous = snaps.groupby("nct_id")[fields].shift(1)
+    previous.columns = ["prev_" + c for c in fields]
+    pairs = pd.concat([snaps, previous], axis=1)
+    pairs = pairs[pairs["prev_snapshot_date"].notna()].copy()
+    pairs["days_moved"] = [
+        date_move_days(od, op, nd, np_) for od, op, nd, np_ in
+        zip(pairs["prev_pcd"], pairs["prev_pcd_precision"], pairs["pcd"], pairs["pcd_precision"])]
+    pairs["status_changed"] = (pairs["overall_status"].fillna("")
+                               != pairs["prev_overall_status"].fillna(""))
+    # The trial finished: the sponsor replaced the estimate with the real date.
+    pairs["became_actual"] = ((pairs["prev_pcd_type"] == "ESTIMATED")
+                              & (pairs["pcd_type"] == "ACTUAL"))
+    return pairs
+
+
+def trial_slippage(snaps, pairs):
+    """One row per trial: its date when we first saw it vs. now.
+
+    'comparable' = seen in 2+ snapshots, and the first date was still an
+    ESTIMATE (a trial that had already finished can't slip)."""
+    snaps = snaps.sort_values(["nct_id", "snapshot_date"])
+    first = snaps.drop_duplicates("nct_id", keep="first").set_index("nct_id")
+    last = snaps.drop_duplicates("nct_id", keep="last").set_index("nct_id")
+    out = pd.DataFrame({
+        "snapshots": snaps.groupby("nct_id").size(),
+        "first_snapshot": first["snapshot_date"],
+        "first_date": first["pcd"],
+        "first_date_type": first["pcd_type"],
+        "latest_date": last["pcd"],
+        "latest_date_type": last["pcd_type"],
+    })
+    out["total_slip_days"] = [
+        date_move_days(od, op, nd, np_) for od, op, nd, np_ in
+        zip(first["pcd"], first["pcd_precision"], last["pcd"], last["pcd_precision"])]
+    moved = pairs["days_moved"].fillna(0) != 0
+    out["date_changes"] = pairs[moved].groupby("nct_id").size()
+    out["date_changes"] = out["date_changes"].fillna(0).astype(int)
+    # Final slip: last estimate vs. the actual date, when the trial finished.
+    out["final_slip_days"] = pairs[pairs["became_actual"]].groupby("nct_id")["days_moved"].last()
+    out["comparable"] = ((out["snapshots"] >= 2) & (out["first_date_type"] == "ESTIMATED")
+                         & out["total_slip_days"].notna())
+    out["delayed"] = out["comparable"] & (out["total_slip_days"] > 0)
+    return out.reset_index()
+
+
+def sponsor_reliability(trial_slips, info, as_of):
+    """One row per company (ticker if it has one, otherwise sponsor name):
+    how often its dates slipped, by how much, and how many trials are
+    overdue right now."""
+    table = info.merge(trial_slips, on="nct_id", how="left")
+    table["company"] = table["ticker"].fillna(table["lead_sponsor"])
+    table["overdue_now"] = (table["overall_status"].isin(OPEN_STATUSES)
+                            & (table["primary_completion_date_type"] == "ESTIMATED")
+                            & (table["primary_completion_date"] < as_of))
+    table["comparable"] = table["comparable"].fillna(False).astype(bool)
+
+    rows = []
+    for company, group in table.groupby("company"):
+        comparable = group[group["comparable"]]
+        enough = len(comparable) >= MIN_SPONSOR_TRIALS
+        delays = comparable.loc[comparable["total_slip_days"] > 0, "total_slip_days"]
+        rows.append({
+            "company": company,
+            "ticker": group["ticker"].iloc[0],
+            "sponsor_names": "; ".join(sorted(group["lead_sponsor"].dropna().unique())),
+            "open_trials": int(group["overall_status"].isin(OPEN_STATUSES).sum()),
+            "overdue_now": int(group["overdue_now"].sum()),
+            "comparable_trials": len(comparable),
+            # Shown only with enough trials to judge (otherwise blank).
+            "share_delayed": round((comparable["total_slip_days"] > 0).mean(), 3) if enough else None,
+            "median_delay_days": float(delays.median()) if enough and len(delays) else None,
+        })
+    sponsors = pd.DataFrame(rows)
+    return sponsors.sort_values(["overdue_now", "open_trials"], ascending=False) \
+                   .reset_index(drop=True)
+
+
+def build_slippage(as_of=None, db_path=DB_PATH):
+    """Returns (changes, trials, sponsors, snapshot_dates).
+
+    changes  = every date move or status change between consecutive snapshots
+    trials   = one row per trial, first-seen date vs latest date
+    sponsors = the reliability table"""
+    as_of = as_of or date.today().isoformat()
+    conn = connect(db_path)
+    snaps = pd.read_sql(SNAPSHOT_QUERY, conn)
+    info = pd.read_sql(TRIAL_INFO_QUERY, conn)
+    conn.close()
+
+    pairs = snapshot_pairs(snaps)
+    something_changed = ((pairs["days_moved"].fillna(0) != 0) | pairs["status_changed"]
+                         | pairs["became_actual"])
+    changes = pairs[something_changed].merge(
+        info[["nct_id", "ticker", "lead_sponsor", "phase", "title"]], on="nct_id", how="left")
+    changes = changes[[
+        "snapshot_date", "prev_snapshot_date", "nct_id", "ticker", "lead_sponsor", "phase",
+        "prev_pcd", "pcd", "days_moved", "became_actual",
+        "prev_overall_status", "overall_status", "status_changed", "title",
+    ]].sort_values(["snapshot_date", "days_moved"], ascending=[False, False])
+
+    trials = trial_slippage(snaps, pairs)
+    sponsors = sponsor_reliability(trials, info, as_of)
+    return changes.reset_index(drop=True), trials, sponsors, sorted(snaps["snapshot_date"].unique())
+
+
 # --- command line ---------------------------------------------------------
 
 def calendar_main():
@@ -571,12 +724,52 @@ def event_study_main():
     print(f"Saved {events_path} and {summary_path}")
 
 
+def slippage_main():
+    as_of = date.today().isoformat()
+    changes, trials, sponsors, snapshot_dates = build_slippage(as_of)
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    changes.to_csv(OUTPUT_DIR / f"slippage_changes_{as_of}.csv", index=False)
+    trials.to_csv(OUTPUT_DIR / f"slippage_trials_{as_of}.csv", index=False)
+    sponsors.to_csv(OUTPUT_DIR / f"slippage_sponsors_{as_of}.csv", index=False)
+
+    print(f"Snapshots in the database: {len(snapshot_dates)} "
+          f"({', '.join(snapshot_dates)})")
+    if len(snapshot_dates) < 2:
+        print("Only one snapshot so far, so no date can have moved yet. Run\n"
+              "  python -m src.fetch  and  python -m src.store\n"
+              "again in about a week to start measuring slippage.")
+    else:
+        latest = changes[changes["snapshot_date"] == snapshot_dates[-1]]
+        moved = latest[latest["days_moved"].fillna(0) != 0]
+        print(f"\nSince the previous snapshot: {len(moved)} dates moved "
+              f"({(moved['days_moved'] > 0).sum()} later, {(moved['days_moved'] < 0).sum()} earlier), "
+              f"{int(latest['status_changed'].sum())} status changes, "
+              f"{int(latest['became_actual'].sum())} trials finished.")
+        for _, r in moved.head(15).iterrows():
+            print(f"  {r['days_moved']:>+5.0f} days  {r['ticker'] or '':6} {r['nct_id']}  "
+                  f"{r['prev_pcd']} -> {r['pcd']}  {r['lead_sponsor']}")
+        comparable = trials[trials["comparable"]]
+        print(f"\n{len(comparable)} trials comparable so far, "
+              f"{int(comparable['delayed'].sum())} delayed since first seen.")
+
+    traded = sponsors[sponsors["ticker"].notna() & (sponsors["overdue_now"] > 0)]
+    print(f"\nTraded companies with overdue trials right now "
+          f"(open, estimated date already passed): {int(traded['overdue_now'].sum())} trials")
+    for _, r in traded.iterrows():
+        print(f"  {r['ticker']:6} {r['overdue_now']} of {r['open_trials']} open trials overdue")
+    print(f"\nSaved slippage_changes/trials/sponsors_{as_of}.csv in {OUTPUT_DIR}")
+
+
 def main(args=None):
-    """python -m src.analytics           -> catalyst calendar
-       python -m src.analytics events    -> event study"""
+    """python -m src.analytics            -> catalyst calendar
+       python -m src.analytics events     -> event study
+       python -m src.analytics slippage   -> date slippage"""
     args = sys.argv[1:] if args is None else args
     if args and args[0] == "events":
         event_study_main()
+    elif args and args[0] == "slippage":
+        slippage_main()
     else:
         calendar_main()
 
