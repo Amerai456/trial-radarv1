@@ -15,4 +15,4 @@
 - 10,405 tickers for 8,002 companies; some companies have several tickers (share classes), and we keep the first.
 - SEC names carry state or ADR tags after a slash ("VERTEX PHARMACEUTICALS INC / MA", "Zealand Pharma A/S/ADR"); the name cleanup strips them.
 - Some tickers are OTC ADRs (e.g. JHPCY, ZLDPF, MCUJF) or bankruptcy tickers ending in Q (SGMOQ): price data for these may be thin.
-- Coverage on 2026-11-11: 73 of 436 sponsors have a ticker, covering about 61% of trials; 193 of 358 open trials have a ticker.
+- Coverage on 2026-11-11 (after approving 10 review matches): 83 of 436 sponsors have a ticker, covering 1,709 of 2,747 trials (62%); 200 of 358 open trials have a ticker.
