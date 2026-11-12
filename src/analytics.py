@@ -3,7 +3,8 @@
 The catalyst calendar lists upcoming trial readouts that investors can
 trade: open trials whose sponsor has a US stock ticker, with an expected
 primary completion date in the next 12 months, plus a separate section for
-trials whose date has already passed.
+trials whose date passed within the last 12 months (older ones have almost
+certainly reported results already).
 
 The impact score (0-100) estimates how much a readout is likely to move the
 sponsor's stock. Higher = likely bigger move. It adds up three parts:
@@ -33,7 +34,8 @@ from src.store import DB_PATH, connect
 
 OPEN_STATUSES = ["RECRUITING", "ACTIVE_NOT_RECRUITING", "NOT_YET_RECRUITING",
                  "ENROLLING_BY_INVITATION"]
-WINDOW_MONTHS = 12   # how far ahead the calendar looks
+WINDOW_MONTHS = 12        # how far ahead the calendar looks
+PAST_WINDOW_MONTHS = 12   # how far back the "past date" section looks
 
 # Score weights (must add up to 1).
 WEIGHT_SIZE = 0.50
@@ -175,10 +177,11 @@ def build_catalyst_calendar(as_of=None, db_path=DB_PATH, lookup=count_open_trial
     """Return the catalyst calendar as a table, one row per trial.
 
     section = "upcoming" (date within the next 12 months) or
-              "past date" (date already passed; check the flags).
+              "past date" (date passed within the last 12 months; check the flags).
     """
     as_of = as_of or date.today().isoformat()
     window_end = (pd.Timestamp(as_of) + pd.DateOffset(months=WINDOW_MONTHS)).date().isoformat()
+    window_start = (pd.Timestamp(as_of) - pd.DateOffset(months=PAST_WINDOW_MONTHS)).date().isoformat()
 
     conn = connect(db_path)
     trials = pd.read_sql(CALENDAR_QUERY, conn)
@@ -200,8 +203,9 @@ def build_catalyst_calendar(as_of=None, db_path=DB_PATH, lookup=count_open_trial
     trials["open_trials_all_diseases"] = trials["ticker"].map(
         lambda t: max(all_counts.get(t) or 0, our_counts[t]))
 
-    # Keep the next 12 months, plus everything whose date has passed.
-    trials = trials[trials["primary_completion_date"] <= window_end].copy()
+    # Keep dates from 12 months ago to 12 months ahead.
+    in_window = trials["primary_completion_date"].between(window_start, window_end)
+    trials = trials[in_window].copy()
     trials["section"] = trials["primary_completion_date"].map(
         lambda d: "upcoming" if d >= as_of else "past date")
 

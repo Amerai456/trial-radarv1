@@ -71,7 +71,9 @@ def make_db(tmp_path):
     add_trial(conn, "NCT_SOON", "Tiny Bio", "2027-01-15", phase="PHASE2")
     add_trial(conn, "NCT_BIG", "Big Pharma", "2027-03-31", precision="month")
     add_trial(conn, "NCT_LATE", "Big Pharma", "2028-06-30")                    # beyond 12 months
-    add_trial(conn, "NCT_OVERDUE", "Big Pharma", "2025-06-30")                 # estimated, passed
+    add_trial(conn, "NCT_OVERDUE", "Big Pharma", "2026-06-30")                 # estimated, passed
+    add_trial(conn, "NCT_OLD", "Big Pharma", "2016-01-24", date_type="ACTUAL",
+              status="ACTIVE_NOT_RECRUITING")                                  # over 12 months ago
     add_trial(conn, "NCT_DONE", "Tiny Bio", "2026-10-01", date_type="ACTUAL",
               status="ACTIVE_NOT_RECRUITING")
     add_trial(conn, "NCT_PRIVATE", "Private Co", "2027-01-01")                 # no ticker
@@ -93,6 +95,8 @@ def build(tmp_path):
 
 
 def test_calendar_includes_only_open_traded_trials_in_window(tmp_path):
+    # Left out: NCT_LATE (over 12 months ahead), NCT_OLD (over 12 months ago),
+    # NCT_PRIVATE (no ticker), NCT_CLOSED (not open).
     calendar = build(tmp_path)
     assert set(calendar.index) == {"NCT_SOON", "NCT_BIG", "NCT_OVERDUE", "NCT_DONE"}
 

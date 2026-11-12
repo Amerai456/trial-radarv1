@@ -55,3 +55,4 @@ Record important decisions and the reasoning behind them.
   - Unknown market cap -> no score (not a guess).
 - **Warning flags** don't change the score: overdue, data collected, month-only date, thinly traded (>5% zero-volume days), no market cap.
 - No new database table: the calendar is calculated on demand and saved as `data/clean/catalysts_<date>.csv` for checking.
+- **Update 2026-11-12:** the "past date" section now only shows trials whose primary completion date passed within the **last 12 months**. Older ones (e.g. an AstraZeneca trial from 2016 that's still "active" for long follow-up) have almost certainly reported results already, so listing them as catalysts would mislead. The section went from 23 to 13 trials.
