@@ -1,0 +1,22 @@
+# Virtual environment (rebuild it from requirements.txt)
+.venv/
+
+# Data files: raw API downloads and the SQLite database (re-creatable)
+data/*
+!data/.gitkeep
+*.db
+*.sqlite
+*.sqlite3
+
+# Python cache files
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Secrets and editor/OS clutter
+.env
+.streamlit/secrets.toml
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
