@@ -55,6 +55,7 @@ Run the pipeline in this order:
 1. `python -m src.fetch`
 2. `python -m src.store` (runs the cleaning itself; `python -m src.clean` only writes a CSV for checking)
 3. `python -m src.enrich` (matching + prices)
+4. `python -m src.analytics` (catalyst calendar) and `python -m src.analytics events` (event study)
 
 Other things to know:
 - **SEC ticker list:** it's saved by hand to `data/reference/company_tickers.json` because the SEC blocks the automatic download.

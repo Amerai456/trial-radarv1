@@ -32,3 +32,8 @@
 - Sponsor-name lookup is phrase-based, so "Sanofi" also counts "Sanofi Pasteur" (same company). Abbott returned 0, so it falls back to our own count.
 - Hansoh (HNPHY) trials are unscored because Yahoo has no market cap.
 - Watch out: a pandas column named `flags` must be read as `df["flags"]`, not `df.flags` (`.flags` is a built-in pandas attribute).
+
+## Event study (2026-11-12)
+- **CAR can go below -100%.** Oramed (ORMP) fell 76% in one day in Jan 2023 when its Phase 3 failed; adding up three days of abnormal returns gives -102%. This is a known quirk of summing simple returns; a real investor can't lose more than 100%. Buy-and-hold abnormal return (compounding) would avoid it.
+- **Small companies show a large positive median move (+35% over 60 days).** Partly real winners (ProKidney +464%, Rhythm, Altimmune, Structure), but mostly **survivorship bias**: the SEC ticker list only contains companies listed today, so small companies whose trials failed and were delisted or acquired never enter the study.
+- 2 trials with a past actual primary completion date have status UNKNOWN (sponsor stopped updating); they're excluded.

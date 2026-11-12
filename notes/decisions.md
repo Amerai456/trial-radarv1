@@ -56,3 +56,16 @@ Record important decisions and the reasoning behind them.
 - **Warning flags** don't change the score: overdue, data collected, month-only date, thinly traded (>5% zero-volume days), no market cap.
 - No new database table: the calendar is calculated on demand and saved as `data/clean/catalysts_<date>.csv` for checking.
 - **Update 2026-11-12:** the "past date" section now only shows trials whose primary completion date passed within the **last 12 months**. Older ones (e.g. an AstraZeneca trial from 2016 that's still "active" for long follow-up) have almost certainly reported results already, so listing them as catalysts would mislead. The section went from 23 to 13 trials.
+
+## 2026-11-12 - Event study (stage 5, part 2)
+- **Event date (day 0)** = a trial's ACTUAL primary completion date, exact-day precision only (next trading day if it falls on a weekend or holiday). The ClinicalTrials.gov results-posted date was rejected: it comes a median 434 days after primary completion, long after companies announce top-line results by press release. So this measures "stock behavior around trial completion", not the exact announcement day.
+- **Windows:** short = trading days -1 to +1; post = trading days 0 to +60 (about 3 months, when top-line results usually come out).
+- **Method: market model vs XBI.** Alpha and beta are estimated over trading days -250 to -30, needing at least 120 usable days. AR = stock return - (alpha + beta x XBI return); CAR = sum of ARs. Simple daily returns from adjusted close.
+- **Standardized CAR** = CAR / (normal daily wiggle x square root of window length). |SCAR| > 1.96 counts as "significant"; if milestones didn't matter, about 5% of events would be significant by chance.
+- **Which events:** completed, terminated and active-not-recruiting trials. Withdrawn, suspended and unknown-status trials are excluded. Trials of one company finishing on the same day = one event (highest phase is used; "terminated" only if all of them were).
+- **Exclusions are kept in the output with a reason:** too little price history, missing prices in the window, thinly traded (more than 10% zero-volume days in the estimation + event windows), no price data, window not finished yet.
+- **Main measure = size of the move (|CAR|)**, because we don't know if results were good or bad, so up and down moves cancel in the average.
+- **Company size at the time** = today's market cap x (price on day 0 / latest price), to avoid lookahead bias. It ignores shares issued since. Size groups: small < $2B, mid $2-20B, large > $20B.
+- **Impact score back-test:** the score is recalculated as of each event (size then, phase, and the company's trials in our data running that day as the concentration stand-in) and compared with |CAR| by rank (Spearman) correlation, done by hand to avoid adding scipy.
+- No new database table: results are saved to `data/clean/event_study_<date>.csv` and `event_study_summary_<date>.csv`.
+- **Known limitations:** survivorship bias (only companies still listed today are matched); one company's events can overlap in time (Novo has 177), which makes t-statistics look stronger than they are; CAR adds simple returns, so very big moves can exceed -100%.

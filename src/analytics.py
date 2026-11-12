@@ -1,4 +1,6 @@
-"""Stage 5 - Analyze. Part 1: catalyst calendar and impact score.
+"""Stage 5 - Analyze.
+Part 1: catalyst calendar and impact score.
+Part 2: event study (how sponsor stocks moved around past trial completions).
 
 The catalyst calendar lists upcoming trial readouts that investors can
 trade: open trials whose sponsor has a US stock ticker, with an expected
@@ -18,17 +20,21 @@ shown next to the score but do not change it.
 (Decisions logged in notes/decisions.md, 2026-11-11.)
 
 Run it from the project folder with:
-    python -m src.analytics
+    python -m src.analytics           (catalyst calendar)
+    python -m src.analytics events    (event study)
 """
 
 import json
 import math
+import sys
 import time
 from datetime import date
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
+from src.enrich import BENCHMARK
 from src.fetch import PAUSE_SECONDS, get_json_with_retries
 from src.store import DB_PATH, connect
 
@@ -230,7 +236,280 @@ def build_catalyst_calendar(as_of=None, db_path=DB_PATH, lookup=count_open_trial
     return trials.reset_index(drop=True)
 
 
-def main():
+# ===========================================================================
+# Part 2: event study - how did sponsor stocks move around past milestones?
+# ===========================================================================
+#
+# Day 0 = a trial's ACTUAL primary completion date (exact day only). Top-line
+# results usually come out within ~3 months, so we measure two windows:
+#   short  trading days -1 to +1   (right around the date)
+#   post   trading days  0 to +60  (the period results usually come out in)
+#
+# Abnormal return (AR) = how much the stock moved beyond what XBI predicted.
+# The prediction comes from the "market model": over trading days -250 to -30
+# we measure how the stock normally moves with XBI (alpha and beta), then
+#   AR = stock return - (alpha + beta x XBI return)
+# CAR (cumulative abnormal return) = the ARs added up over a window.
+# (Decisions logged in notes/decisions.md, 2026-11-12.)
+
+EVENT_STATUSES = ["COMPLETED", "TERMINATED", "ACTIVE_NOT_RECRUITING"]
+ESTIMATION_WINDOW = (-250, -30)   # trading days used to learn alpha and beta
+MIN_ESTIMATION_DAYS = 120         # fewer usable days -> beta too unreliable
+EVENT_WINDOWS = {"short": (-1, 1), "post": (0, 60)}
+MAX_ZERO_VOLUME_SHARE = 0.10      # exclude if no trading on >10% of days
+SIGNIFICANT_Z = 1.96              # |standardized CAR| above this = "significant"
+SIZE_GROUPS = [(2e9, "small (<$2B)"), (20e9, "mid ($2-20B)"), (math.inf, "large (>$20B)")]
+
+EVENT_QUERY = """
+SELECT t.nct_id, s.ticker, t.phase, t.overall_status,
+       t.primary_completion_date AS event_date
+FROM trials t
+JOIN sponsor_tickers s ON s.sponsor_name = t.lead_sponsor
+WHERE s.ticker IS NOT NULL
+  AND t.primary_completion_date_type = 'ACTUAL'
+  AND t.primary_completion_date_precision = 'day'
+  AND t.primary_completion_date < ?
+"""
+
+RUNNING_TRIALS_QUERY = """
+SELECT s.ticker, t.start_date, t.primary_completion_date
+FROM trials t
+JOIN sponsor_tickers s ON s.sponsor_name = t.lead_sponsor
+WHERE s.ticker IS NOT NULL AND t.overall_status != 'WITHDRAWN'
+  AND t.start_date IS NOT NULL AND t.primary_completion_date IS NOT NULL
+"""
+
+
+def combine_same_day(trials):
+    """One event per ticker per date. Two trials of one company finishing on
+    the same day are one stock-market event, not two.
+
+    Returns (events, excluded): trials with a status we don't study
+    (withdrawn, suspended, ...) are returned separately with a reason."""
+    usable = trials["overall_status"].isin(EVENT_STATUSES)
+    excluded = trials[~usable].copy()
+    excluded["exclude_reason"] = "status " + excluded["overall_status"]
+
+    rows = []
+    for (ticker, event_date), group in trials[usable].groupby(["ticker", "event_date"]):
+        # Use the most important phase among the trials (Phase 3 > Phase 2).
+        phase = max(group["phase"], key=phase_part)
+        all_terminated = (group["overall_status"] == "TERMINATED").all()
+        rows.append({
+            "ticker": ticker, "event_date": event_date, "phase": phase,
+            "status_group": "terminated" if all_terminated else "completed or active",
+            "n_trials": len(group), "nct_ids": "; ".join(sorted(group["nct_id"])),
+        })
+    events = pd.DataFrame(rows, columns=["ticker", "event_date", "phase", "status_group",
+                                         "n_trials", "nct_ids"])
+    excluded = excluded.rename(columns={"nct_id": "nct_ids"})
+    excluded["n_trials"] = 1
+    excluded["status_group"] = None
+    return events, excluded[["ticker", "event_date", "phase", "status_group",
+                             "n_trials", "nct_ids", "exclude_reason"]]
+
+
+def load_price_tables(tickers, db_path=DB_PATH):
+    """Adjusted prices and volumes as wide tables (one column per ticker),
+    on XBI's trading days. Daily returns = % change of adjusted price; a day
+    right after a missing price gets no return rather than a 2-day return."""
+    conn = connect(db_path)
+    wanted = sorted(set(tickers) | {BENCHMARK})
+    prices = pd.read_sql(
+        f"SELECT ticker, date, adj_close, volume FROM prices "
+        f"WHERE ticker IN ({', '.join('?' * len(wanted))})", conn, params=wanted)
+    conn.close()
+    adj = prices.pivot(index="date", columns="ticker", values="adj_close").sort_index()
+    if BENCHMARK not in adj.columns:
+        raise SystemExit(f"No {BENCHMARK} prices in the database. Run: python -m src.enrich")
+    adj = adj[adj[BENCHMARK].notna()]
+    volume = prices.pivot(index="date", columns="ticker", values="volume").reindex(adj.index)
+    returns = adj.pct_change(fill_method=None)
+    return adj, returns, volume
+
+
+def day0_position(trading_days, event_date):
+    """Position of day 0: the event date, or the next trading day if the
+    event fell on a weekend or holiday."""
+    return int(np.searchsorted(trading_days, event_date))
+
+
+def market_model(stock, market):
+    """Fit stock = alpha + beta x market by least squares.
+    Returns alpha, beta and sigma (the typical size of a day's leftover
+    wiggle, used to judge whether a CAR is unusually big)."""
+    beta = np.cov(stock, market)[0, 1] / np.var(market, ddof=1)
+    alpha = stock.mean() - beta * market.mean()
+    residuals = stock - (alpha + beta * market)
+    sigma = residuals.std(ddof=2)
+    return alpha, beta, sigma
+
+
+def measure_event(returns, volume, ticker, event_date):
+    """Measure one event. Returns a dict of results, or a dict with only
+    'exclude_reason' if the event can't be measured fairly."""
+    if ticker not in returns.columns:
+        return {"exclude_reason": "no price data"}
+    days = returns.index.to_numpy()
+    day0 = day0_position(days, event_date)
+    last_day = day0 + max(end for _, end in EVENT_WINDOWS.values())
+    if last_day >= len(days):
+        return {"exclude_reason": "event window not finished yet"}
+
+    stock = returns[ticker].to_numpy()
+    market = returns[BENCHMARK].to_numpy()
+
+    est = slice(max(day0 + ESTIMATION_WINDOW[0], 0), day0 + ESTIMATION_WINDOW[1] + 1)
+    usable = ~np.isnan(stock[est]) & ~np.isnan(market[est])
+    if usable.sum() < MIN_ESTIMATION_DAYS:
+        return {"exclude_reason": "too little price history before event"}
+    alpha, beta, sigma = market_model(stock[est][usable], market[est][usable])
+
+    # Thin trading check over the estimation and event windows together.
+    vol = volume[ticker].to_numpy()[est.start:last_day + 1]
+    vol = vol[~np.isnan(vol)]
+    zero_share = float((vol == 0).mean()) if len(vol) else 1.0
+    if zero_share > MAX_ZERO_VOLUME_SHARE:
+        return {"exclude_reason": f"thinly traded ({zero_share:.0%} zero-volume days)"}
+
+    result = {"day0_date": days[day0], "estimation_days": int(usable.sum()),
+              "alpha": alpha, "beta": beta, "sigma": sigma,
+              "zero_volume_share": round(zero_share, 4)}
+    for name, (start, end) in EVENT_WINDOWS.items():
+        window = slice(day0 + start, day0 + end + 1)
+        if np.isnan(stock[window]).any():
+            return {"exclude_reason": "missing prices in event window"}
+        abnormal = stock[window] - (alpha + beta * market[window])
+        car = abnormal.sum()
+        result[f"car_{name}"] = car
+        # Standardized CAR: the CAR divided by how big it would typically be
+        # on ordinary days. Above 1.96 (either sign) happens only ~5% of the
+        # time by chance.
+        result[f"scar_{name}"] = car / (sigma * math.sqrt(end - start + 1))
+    return result
+
+
+def size_group(market_cap):
+    if market_cap is None or pd.isna(market_cap):
+        return None
+    return next(label for limit, label in SIZE_GROUPS if market_cap < limit)
+
+
+def running_trial_counts(events, running):
+    """For each event, how many of the company's trials (in our data) were
+    running that day. A stand-in for "concentration" at the time, because
+    we can't look up past open-trial counts across all diseases."""
+    counts = []
+    for ticker, event_date in zip(events["ticker"], events["event_date"]):
+        mine = running[running["ticker"] == ticker]
+        counts.append(int(((mine["start_date"] <= event_date) &
+                           (mine["primary_completion_date"] >= event_date)).sum()))
+    return counts
+
+
+def build_event_study(as_of=None, db_path=DB_PATH):
+    """One row per event (ticker + date), including excluded events with the
+    reason, so nothing disappears silently."""
+    as_of = as_of or date.today().isoformat()
+    conn = connect(db_path)
+    trials = pd.read_sql(EVENT_QUERY, conn, params=[as_of])
+    running = pd.read_sql(RUNNING_TRIALS_QUERY, conn)
+    caps = dict(conn.execute("SELECT ticker, market_cap FROM ticker_info").fetchall())
+    conn.close()
+
+    events, excluded = combine_same_day(trials)
+    adj, returns, volume = load_price_tables(events["ticker"].unique(), db_path)
+
+    results = [measure_event(returns, volume, t, d)
+               for t, d in zip(events["ticker"], events["event_date"])]
+    events = pd.concat([events.reset_index(drop=True), pd.DataFrame(results)], axis=1)
+
+    # Company size AT THE TIME of the event, estimated as
+    # today's market cap x (price on day 0 / latest price).
+    # Using today's size would be "lookahead bias": a small company whose
+    # trial succeeded may be big today. Ignores shares issued since.
+    def cap_then(row):
+        cap_now = caps.get(row["ticker"])
+        if pd.isna(row.get("day0_date")) or not cap_now:
+            return None
+        series = adj[row["ticker"]].dropna()
+        return cap_now * adj.at[row["day0_date"], row["ticker"]] / series.iloc[-1]
+
+    events["market_cap_then"] = events.apply(cap_then, axis=1)
+    events["size_group"] = events["market_cap_then"].map(size_group)
+    events["running_trials_then"] = running_trial_counts(events, running)
+    events["impact_score_then"] = [
+        impact_score(size_part(cap), concentration_part(n), phase_part(p))
+        for cap, n, p in zip(events["market_cap_then"], events["running_trials_then"],
+                             events["phase"])]
+
+    all_rows = pd.concat([events, excluded], ignore_index=True)
+    if "exclude_reason" not in all_rows.columns:   # every event was measurable
+        all_rows["exclude_reason"] = None
+    all_rows["included"] = all_rows["exclude_reason"].isna()
+    columns = [
+        "included", "exclude_reason", "ticker", "event_date", "day0_date", "phase",
+        "status_group", "n_trials", "nct_ids", "size_group", "market_cap_then",
+        "running_trials_then", "impact_score_then", "car_short", "car_post",
+        "scar_short", "scar_post", "alpha", "beta", "sigma", "estimation_days",
+        "zero_volume_share",
+    ]
+    return all_rows[columns].sort_values(["event_date", "ticker"]).reset_index(drop=True)
+
+
+def summarize_group(group, window):
+    """Average move statistics for one group of events in one window."""
+    car = group[f"car_{window}"].dropna()
+    scar = group[f"scar_{window}"].dropna()
+    n = len(car)
+    # t-statistic: is the average signed CAR different from zero?
+    # (mean / standard error). Above ~2 in size suggests a real effect.
+    t_stat = car.mean() / (car.std(ddof=1) / math.sqrt(n)) if n > 1 and car.std() > 0 else None
+    return {
+        "events": n,
+        "mean_car": car.mean() if n else None,
+        "t_stat": t_stat,
+        "mean_abs_car": car.abs().mean() if n else None,
+        "median_abs_car": car.abs().median() if n else None,
+        # Share of events with an unusually big move. If trial milestones
+        # didn't matter, this would be about 5% by chance alone.
+        "share_significant": (scar.abs() > SIGNIFICANT_Z).mean() if n else None,
+    }
+
+
+def summarize_event_study(events):
+    """Summary table: every window x (all events, and each breakdown)."""
+    included = events[events["included"]].copy()
+    scored = included["impact_score_then"].notna()
+    included.loc[scored, "score_group"] = pd.qcut(
+        included.loc[scored, "impact_score_then"].rank(method="first"), 3,
+        labels=["low third", "middle third", "top third"]).astype(str)
+
+    rows = []
+    for window in EVENT_WINDOWS:
+        rows.append({"window": window, "breakdown": "all", "group": "all",
+                     **summarize_group(included, window)})
+        for breakdown in ["size_group", "phase", "status_group", "score_group"]:
+            for value, group in included.groupby(breakdown):
+                rows.append({"window": window, "breakdown": breakdown, "group": value,
+                             **summarize_group(group, window)})
+    return pd.DataFrame(rows)
+
+
+def score_backtest(events, window="post"):
+    """Rank correlation between the impact score at the time and the size of
+    the move (|CAR|). +1 = higher score always meant a bigger move, 0 = no link."""
+    included = events[events["included"] & events["impact_score_then"].notna()]
+    # Spearman = ordinary correlation of the RANKS (1st, 2nd, 3rd...), done
+    # by hand because pandas' built-in version needs the extra scipy library.
+    score_rank = included["impact_score_then"].rank()
+    move_rank = included[f"car_{window}"].abs().rank()
+    return score_rank.corr(move_rank)
+
+
+# --- command line ---------------------------------------------------------
+
+def calendar_main():
     as_of = date.today().isoformat()
     print(f"Building catalyst calendar as of {as_of}...")
     calendar = build_catalyst_calendar(as_of)
@@ -251,6 +530,55 @@ def main():
         print(f"  {r['impact_score']:>5}  {r['primary_completion_date']}  {r['ticker']:6} "
               f"{r['phase']:14} cap {cap:>10}  open trials {r['open_trials_all_diseases']:>3}  "
               f"{r['flags'] if isinstance(r['flags'], str) else ''}")
+
+
+def event_study_main():
+    as_of = date.today().isoformat()
+    print(f"Running event study on past trial completions (before {as_of})...")
+    events = build_event_study(as_of)
+    summary = summarize_event_study(events)
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    events_path = OUTPUT_DIR / f"event_study_{as_of}.csv"
+    summary_path = OUTPUT_DIR / f"event_study_summary_{as_of}.csv"
+    events.to_csv(events_path, index=False)
+    summary.to_csv(summary_path, index=False)
+
+    included = events[events["included"]]
+    print(f"\n{len(included)} events measured, {len(events) - len(included)} excluded.")
+    print("Exclusion reasons:")
+    reasons = events["exclude_reason"].dropna().str.replace(r"\(.*\)", "", regex=True)
+    for reason, count in reasons.str.strip().value_counts().items():
+        print(f"  {count:>4}  {reason}")
+
+    def pct(x):
+        return f"{x:+.1%}" if x is not None and pd.notna(x) else "n/a"
+
+    for window, (start, end) in EVENT_WINDOWS.items():
+        print(f"\nWindow '{window}' (trading days {start} to +{end}):")
+        print(f"  {'group':34} {'events':>6} {'mean CAR':>9} {'t':>6} "
+              f"{'mean |CAR|':>10} {'median |CAR|':>12} {'% signif.':>9}")
+        for _, r in summary[summary["window"] == window].iterrows():
+            label = r["group"] if r["breakdown"] == "all" else f"{r['breakdown']}: {r['group']}"
+            t = f"{r['t_stat']:.2f}" if pd.notna(r["t_stat"]) else "n/a"
+            print(f"  {label:34} {r['events']:>6} {pct(r['mean_car']):>9} {t:>6} "
+                  f"{pct(r['mean_abs_car']).lstrip('+'):>10} "
+                  f"{pct(r['median_abs_car']).lstrip('+'):>12} "
+                  f"{r['share_significant']:>9.0%}")
+
+    print(f"\nImpact score back-test (rank correlation with |CAR|): "
+          f"short {score_backtest(events, 'short'):.2f}, post {score_backtest(events, 'post'):.2f}")
+    print(f"Saved {events_path} and {summary_path}")
+
+
+def main(args=None):
+    """python -m src.analytics           -> catalyst calendar
+       python -m src.analytics events    -> event study"""
+    args = sys.argv[1:] if args is None else args
+    if args and args[0] == "events":
+        event_study_main()
+    else:
+        calendar_main()
 
 
 if __name__ == "__main__":
