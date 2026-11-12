@@ -112,21 +112,34 @@ def flatten_study(study):
 
 
 def load_latest_raw():
-    """Return {condition_name: list of studies} from the newest raw file of each.
+    """Read the newest raw file for each disease.
+
+    Returns (raw, fetch_date):
+      raw        = {condition_name: list of studies}
+      fetch_date = the day that data was downloaded, e.g. "2026-11-11"
 
     File names end in the fetch date (e.g. obesity_2026-11-11.json), so
     sorting the names puts the newest one last.
     """
     raw = {}
+    fetch_dates = set()
     for name in CONDITIONS:
         files = sorted(RAW_DIR.glob(f"{name}_*.json"))
         if not files:
             print(f"  warning: no raw file for {name}; run python -m src.fetch first")
             continue
         with open(files[-1], encoding="utf-8") as f:
-            raw[name] = json.load(f)["studies"]
+            record = json.load(f)
+        raw[name] = record["studies"]
+        fetch_dates.add(record["fetched_on"])
         print(f"  {name}: {len(raw[name])} trials from {files[-1].name}")
-    return raw
+
+    if not raw:
+        raise SystemExit("No raw data found. Run: python -m src.fetch")
+    if len(fetch_dates) > 1:
+        print(f"  warning: raw files come from different days {sorted(fetch_dates)}; "
+              "re-run python -m src.fetch so they match")
+    return raw, max(fetch_dates)
 
 
 def build_trials_table(raw_by_condition):
@@ -158,11 +171,11 @@ def build_trials_table(raw_by_condition):
 
 def main():
     print("Loading raw files...")
-    raw = load_latest_raw()
+    raw, fetch_date = load_latest_raw()
     trials = build_trials_table(raw)
 
     CLEAN_DIR.mkdir(parents=True, exist_ok=True)
-    path = CLEAN_DIR / f"trials_{date.today().isoformat()}.csv"
+    path = CLEAN_DIR / f"trials_{fetch_date}.csv"   # named after the fetch day
     trials.to_csv(path, index=False)
 
     total_raw = sum(len(studies) for studies in raw.values())

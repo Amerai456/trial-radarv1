@@ -18,3 +18,12 @@ Record important decisions and the reasoning behind them.
 - **Decision:** a month-only date is stored as the **last day of that month** (`2027-03` -> `2027-03-31`), read as "by the end of March".
 - The original text and a precision flag (`day` / `month`) are always kept next to the parsed date, so a filled-in day is never mistaken for a real one.
 - The event study will only use dates with `day` precision; filling in a day would put the stock-move window on the wrong date.
+
+## 2026-11-11 - Database structure (stage 3)
+- SQLite file `data/trials.db` (git-ignored) with two tables:
+  - `trials`: latest version of each trial, `nct_id` as primary key, the 28 cleaned columns, plus `first_seen_date` and `last_seen_date`.
+  - `snapshots`: one row per trial per fetch, with status, the three key dates (with type and precision) and the last-update date. Primary key is (`snapshot_date`, `nct_id`), so re-running on the same day replaces that day's rows instead of duplicating them.
+- `snapshot_date` is the day the data was **fetched** (stored in the raw file), not the day `store.py` ran.
+- Trials that stop matching the search are **kept** in `trials`. Their `last_seen_date` stops moving, so no history is lost.
+- Dates are stored as `YYYY-MM-DD` text, because SQLite has no date type and this format sorts correctly.
+- History starts 2026-11-11, and slippage analysis needs repeated (e.g. weekly) runs.
