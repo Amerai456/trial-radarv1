@@ -37,3 +37,6 @@
 - **CAR can go below -100%.** Oramed (ORMP) fell 76% in one day in Jan 2023 when its Phase 3 failed; adding up three days of abnormal returns gives -102%. This is a known quirk of summing simple returns; a real investor can't lose more than 100%. Buy-and-hold abnormal return (compounding) would avoid it.
 - **Small companies show a large positive median move (+35% over 60 days).** Partly real winners (ProKidney +464%, Rhythm, Altimmune, Structure), but mostly **survivorship bias**: the SEC ticker list only contains companies listed today, so small companies whose trials failed and were delisted or acquired never enter the study.
 - 2 trials with a past actual primary completion date have status UNKNOWN (sponsor stopped updating); they're excluded.
+
+## Deployment (2026-11-12)
+- **The first deploy on Streamlit Community Cloud crashed with ModuleNotFoundError** at `src/clean.py` (`from src.fetch import ...`). `app.py` imported two small things from `src/analytics.py`, which loaded the whole pipeline (enrich -> store -> clean -> fetch, plus yfinance and rapidfuzz). Fix: those two things now live in `src/common.py`, which imports nothing from the pipeline, and a test checks in a fresh Python process that the dashboard loads none of the pipeline. The dashboard was also checked in an environment with only streamlit, pandas and plotly installed.

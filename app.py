@@ -16,7 +16,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from src.analytics import OPEN_STATUSES, size_group
+# Only the tiny shared file: the dashboard must not load the data pipeline.
+from src.common import OPEN_STATUSES, size_group
 
 DB_FILE = Path(os.environ.get("DASHBOARD_DB",
                               Path(__file__).parent / "dashboard_data" / "dashboard.db"))
@@ -117,7 +118,7 @@ def calendar_tab(t):
                 "impact_score": "Impact score", "phase": "Phase", "lead_sponsor": "Sponsor"})
     fig.update_traces(marker={"opacity": 0.8})
     fig.update_layout(height=380, margin={"t": 10, "b": 10}, yaxis_range=[0, 100])
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     st.caption("Bigger bubble = smaller company (a bigger share of its value rides on the trial).")
 
     cal = with_links(cal)
@@ -127,7 +128,7 @@ def calendar_tab(t):
         cal[["primary_completion_date", "ticker", "lead_sponsor", "impact_score", "flags",
              "phase", "diseases", "interventions", "market_cap_b",
              "open_trials_all_diseases", "enrollment", "link"]],
-        hide_index=True, use_container_width=True,
+        hide_index=True, width="stretch",
         column_config={
             "primary_completion_date": "Date", "ticker": "Ticker", "lead_sponsor": "Sponsor",
             "impact_score": st.column_config.NumberColumn("Score", format="%.1f"),
@@ -202,7 +203,7 @@ def company_tab(t):
             fig.add_vline(x=d, line={"color": ORANGE, "width": 1.5, "dash": "dash"})
         fig.update_layout(height=380, margin={"t": 10, "b": 10}, hovermode="x unified",
                           yaxis_title="Value of $100 invested", legend={"orientation": "h", "y": 1.02, "yanchor": "bottom", "title": None})
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
         st.caption("Dotted gray lines: past trial completions (actual dates). "
                    "Dashed orange lines: upcoming expected completions.")
 
@@ -213,7 +214,7 @@ def company_tab(t):
         trials.sort_values("primary_completion_date", ascending=False)[
             ["primary_completion_date", "primary_completion_date_type", "phase",
              "overall_status", "interventions", "title", "link"]],
-        hide_index=True, use_container_width=True,
+        hide_index=True, width="stretch",
         column_config={"primary_completion_date": "Primary completion",
                        "primary_completion_date_type": "Actual / estimated",
                        "phase": "Phase", "overall_status": "Status",
@@ -226,7 +227,7 @@ def company_tab(t):
         st.dataframe(
             mine.sort_values("event_date", ascending=False)[
                 ["event_date", "phase", "status_group", "n_trials", "car_short", "car_post"]],
-            hide_index=True, use_container_width=True,
+            hide_index=True, width="stretch",
             column_config={
                 "event_date": "Completion date", "phase": "Phase", "status_group": "Status",
                 "n_trials": "Trials",
@@ -258,7 +259,7 @@ def runway_section(t, ticker):
     st.dataframe(
         mine[["nct_id", "phase", "primary_completion_date", "cushion_months",
               "completion_date", "cushion_study_months", "runway_status"]],
-        hide_index=True, use_container_width=True,
+        hide_index=True, width="stretch",
         column_config={
             "nct_id": "Trial", "phase": "Phase",
             "primary_completion_date": "Expected primary completion",
@@ -298,7 +299,7 @@ def event_tab(t, meta):
     fig.add_vline(x=0, line={"color": GRAY, "width": 1, "dash": "dot"})
     fig.update_layout(height=380, margin={"t": 10, "b": 10}, yaxis_tickformat=".0%",
                       hovermode="x unified", legend={"orientation": "h", "y": 1.02, "yanchor": "bottom", "title": None})
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     window = st.radio("Window", ["post", "short"], horizontal=True,
                       format_func={"post": "Days 0 to +60", "short": "Days -1 to +1"}.get)
@@ -309,7 +310,7 @@ def event_tab(t, meta):
     st.dataframe(
         summary[["group", "events", "mean_car", "t_stat", "mean_abs_car",
                  "median_abs_car", "share_significant"]],
-        hide_index=True, use_container_width=True,
+        hide_index=True, width="stretch",
         column_config={
             "group": "Group", "events": "Events",
             "mean_car": st.column_config.NumberColumn("Mean CAR", format="percent"),
@@ -322,7 +323,7 @@ def event_tab(t, meta):
                "small companies whose trials failed and that later disappeared are missing. "
                "That is why small-company moves look mostly positive.")
     with st.expander("All events, including excluded ones and why"):
-        st.dataframe(t["events"], hide_index=True, use_container_width=True)
+        st.dataframe(t["events"], hide_index=True, width="stretch")
 
 
 # --- tab 4: date slippage -------------------------------------------------
@@ -337,7 +338,7 @@ def slippage_tab(t, meta):
         changes = t["slippage_changes"]
         latest = changes[changes["snapshot_date"] == changes["snapshot_date"].max()]
         st.markdown(f"**Changes in the latest snapshot ({len(latest)})**")
-        st.dataframe(latest, hide_index=True, use_container_width=True)
+        st.dataframe(latest, hide_index=True, width="stretch")
 
     sponsors = t["slippage_sponsors"]
     traded_only = st.checkbox("Only companies with a US ticker", value=True)
@@ -347,7 +348,7 @@ def slippage_tab(t, meta):
     st.dataframe(
         sponsors[["company", "sponsor_names", "open_trials", "overdue_now",
                   "comparable_trials", "share_delayed", "median_delay_days"]],
-        hide_index=True, use_container_width=True,
+        hide_index=True, width="stretch",
         column_config={
             "company": "Company", "sponsor_names": "Sponsor names",
             "open_trials": "Open trials", "overdue_now": "Overdue now",

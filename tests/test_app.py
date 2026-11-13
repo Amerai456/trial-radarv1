@@ -50,6 +50,27 @@ def test_company_with_cash_runway_section(monkeypatch):
     assert any("Monthly burn" in m.label for m in app.metric)
 
 
+def test_dashboard_does_not_load_the_data_pipeline(tmp_path):
+    """The deployed dashboard only reads dashboard.db. Loading the pipeline
+    (yfinance, rapidfuzz, the fetch/clean/store/enrich code) made it crash
+    on Streamlit Community Cloud, so check in a fresh Python process."""
+    import subprocess
+    import sys
+
+    script = (
+        "import sys\n"
+        "from streamlit.testing.v1 import AppTest\n"
+        f"AppTest.from_file({APP!r}, default_timeout=60).run()\n"
+        "pipeline = ['yfinance', 'rapidfuzz', 'src.fetch', 'src.clean', 'src.store',\n"
+        "            'src.enrich', 'src.analytics']\n"
+        "print([m for m in pipeline if m in sys.modules])\n"
+    )
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
+                            cwd=Path(APP).parent, timeout=120)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().splitlines()[-1] == "[]"
+
+
 def test_missing_data_file_shows_a_message(monkeypatch, tmp_path):
     monkeypatch.setenv("DASHBOARD_DB", str(tmp_path / "nothing.db"))
     app = AppTest.from_file(APP, default_timeout=60).run()

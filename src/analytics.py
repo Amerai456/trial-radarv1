@@ -38,12 +38,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from src.common import OPEN_STATUSES, SIZE_GROUPS, size_group  # noqa: F401 (shared)
 from src.enrich import BENCHMARK, RUNWAY_MAX_MARKET_CAP
 from src.fetch import PAUSE_SECONDS, get_json_with_retries
 from src.store import DB_PATH, connect
 
-OPEN_STATUSES = ["RECRUITING", "ACTIVE_NOT_RECRUITING", "NOT_YET_RECRUITING",
-                 "ENROLLING_BY_INVITATION"]
 WINDOW_MONTHS = 12        # how far ahead the calendar looks
 PAST_WINDOW_MONTHS = 12   # how far back the "past date" section looks
 
@@ -269,7 +268,6 @@ MIN_ESTIMATION_DAYS = 120         # fewer usable days -> beta too unreliable
 EVENT_WINDOWS = {"short": (-1, 1), "post": (0, 60)}
 MAX_ZERO_VOLUME_SHARE = 0.10      # exclude if no trading on >10% of days
 SIGNIFICANT_Z = 1.96              # |standardized CAR| above this = "significant"
-SIZE_GROUPS = [(2e9, "small (<$2B)"), (20e9, "mid ($2-20B)"), (math.inf, "large (>$20B)")]
 
 EVENT_QUERY = """
 SELECT t.nct_id, s.ticker, t.phase, t.overall_status,
@@ -398,12 +396,6 @@ def measure_event(returns, volume, ticker, event_date):
         # time by chance.
         result[f"scar_{name}"] = car / (sigma * math.sqrt(end - start + 1))
     return result
-
-
-def size_group(market_cap):
-    if market_cap is None or pd.isna(market_cap):
-        return None
-    return next(label for limit, label in SIZE_GROUPS if market_cap < limit)
 
 
 def running_trial_counts(events, running):
