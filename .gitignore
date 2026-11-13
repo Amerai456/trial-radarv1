@@ -20,3 +20,6 @@ __pycache__/
 .idea/
 Thumbs.db
 .DS_Store
+
+# The small dashboard database IS committed (made by python -m src.export)
+!dashboard_data/dashboard.db

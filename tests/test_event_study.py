@@ -148,6 +148,18 @@ def test_exclusion_reasons(tmp_path):
     assert events["included"].sum() == 1
 
 
+def test_car_path_shows_the_jump_on_day_0(tmp_path):
+    db = make_db(tmp_path)
+    events = analytics.build_event_study(as_of="2026-11-12", db_path=db)
+    paths = analytics.build_car_paths(events, db_path=db)
+    good = paths[paths["size_group"] == "all"].set_index("day")
+    assert list(good.index) == list(range(-10, 61))
+    # Before day 0 almost nothing; from day 0 on, about +10%.
+    assert abs(good.loc[-1, "mean_car"]) < 0.01
+    assert good.loc[0, "mean_car"] == pytest.approx(JUMP, abs=0.01)
+    assert good.loc[0, "events"] == 1
+
+
 def test_market_cap_then_uses_price_at_the_time(tmp_path):
     events = build(tmp_path)
     good = events[events["included"]].iloc[0]

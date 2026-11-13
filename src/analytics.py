@@ -498,6 +498,42 @@ def summarize_event_study(events):
     return pd.DataFrame(rows)
 
 
+PATH_DAYS = (-10, 60)   # trading days shown in the day-by-day CAR chart
+
+
+def build_car_paths(events, db_path=DB_PATH):
+    """Average cumulative abnormal return for each trading day from -10 to
+    +60 (added up from day -10), for each size group and for all events.
+    This is the classic event-study chart: it shows how the move builds up."""
+    included = events[events["included"]]
+    columns = ["size_group", "day", "mean_car", "median_car", "events"]
+    if included.empty:
+        return pd.DataFrame(columns=columns)
+    _, returns, _ = load_price_tables(included["ticker"].unique(), db_path)
+    days = returns.index.to_numpy()
+    start, end = PATH_DAYS
+    offsets = range(start, end + 1)
+
+    rows = []
+    for _, event in included.iterrows():
+        day0 = day0_position(days, event["day0_date"])
+        if day0 + start < 0 or day0 + end >= len(days):
+            continue
+        window = slice(day0 + start, day0 + end + 1)
+        abnormal = returns[event["ticker"]].to_numpy()[window] - (
+            event["alpha"] + event["beta"] * returns[BENCHMARK].to_numpy()[window])
+        if np.isnan(abnormal).any():
+            continue
+        for offset, car in zip(offsets, np.cumsum(abnormal)):
+            rows.append((event["size_group"], offset, car))
+
+    paths = pd.DataFrame(rows, columns=["size_group", "day", "car"])
+    paths = pd.concat([paths, paths.assign(size_group="all")])
+    return (paths.groupby(["size_group", "day"])["car"]
+            .agg(mean_car="mean", median_car="median", events="count")
+            .reset_index())
+
+
 def score_backtest(events, window="post"):
     """Rank correlation between the impact score at the time and the size of
     the move (|CAR|). +1 = higher score always meant a bigger move, 0 = no link."""
