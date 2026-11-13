@@ -1,4 +1,4 @@
-# Biotech Catalyst Tracker
+# TOPLINE (Biotech Catalyst Tracker)
 
 ## What this project is
 A Python tool that collects clinical trial data from the ClinicalTrials.gov API v2, links each trial's sponsor to its stock ticker, and helps answer investor questions: which trial readouts are coming up, how much each one likely matters (catalyst impact score), and how sponsor stocks have reacted around past trial milestones (event study vs. the XBI biotech ETF). It ends in a deployed Streamlit dashboard. This is a resume project for a finance internship.

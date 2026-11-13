@@ -1,4 +1,6 @@
-# Biotech Catalyst Tracker
+# TOPLINE
+
+**Biotech catalyst tracker.** "Top-line results" are the first headline results of a clinical trial, the moment biotech stocks move most.
 
 **Live dashboard:** _link coming after deployment_
 

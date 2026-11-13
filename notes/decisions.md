@@ -106,4 +106,4 @@ Record important decisions and the reasoning behind them.
 - **Tabs** use short numbered codes: 1 CAL, 2 CO, 3 EVT, 4 SLIP, 5 METH.
 - **Chart series colors:** amber #d07c00, blue #1e90ff, magenta #d43fbf, checked with a colorblind-safety validator on the black background (all pairs pass). Phases and size groups keep fixed colors.
 - **Signed numbers** (CAR, t-stat, cash cushion) are green when positive and red when negative, always with a +/- sign so color is never the only signal.
-- **Name: TOPLINE** ("top-line results" = a trial's first headline results; "top line" is also a finance term). Set in one place (`APP_NAME` in `app.py`). The README and repo still use "Biotech Catalyst Tracker" until the name is confirmed.
+- **Name: TOPLINE** ("top-line results" = a trial's first headline results; "top line" is also a finance term). Set in one place (`APP_NAME` in `app.py`). Confirmed 2026-11-12: README and CLAUDE.md now use TOPLINE. The GitHub repo name (`trial-radarv1`) and the Streamlit web address stay as they are.
