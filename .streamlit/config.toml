@@ -1,0 +1,35 @@
+# Terminal-style look for the dashboard (TOPLINE).
+# Black screen, one monospace font, square corners, sharp colors, dense layout.
+# Streamlit reads this file automatically, locally and on Streamlit Community Cloud.
+
+[theme]
+base = "dark"
+backgroundColor = "#000000"
+secondaryBackgroundColor = "#0d0d0d"
+textColor = "#e0e0e0"
+primaryColor = "#ffa028"            # amber: highlights, active tab, sliders
+linkColor = "#1e90ff"
+linkUnderline = false
+
+font = "monospace"
+headingFont = "monospace"
+codeFont = "monospace"
+baseFontSize = 13
+headingFontSizes = ["1.15rem", "1rem", "0.9rem", "0.85rem", "0.8rem", "0.75rem"]
+metricValueFontSize = "1.35rem"
+
+baseRadius = "none"                 # square corners everywhere
+buttonRadius = "none"
+borderColor = "#333333"
+showWidgetBorder = true
+dataframeBorderColor = "#2a2a2a"
+dataframeHeaderBackgroundColor = "#141414"
+dataframeHeaderTextColor = "#ffa028"
+
+# Chart series colors, in order (checked for colorblind-safe contrast on black).
+chartCategoricalColors = ["#d07c00", "#1e90ff", "#d43fbf"]
+greenColor = "#33d17a"
+redColor = "#ff4040"
+
+[client]
+toolbarMode = "minimal"

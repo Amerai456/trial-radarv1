@@ -99,3 +99,11 @@ Record important decisions and the reasoning behind them.
 - **Not part of the impact score**; shown as a calendar warning and in the dashboard's Company view.
 - **Wording:** shown as "cash may run out before readout", because "zombie company" in finance usually means a company that can't cover its debt interest.
 - **Main limitation:** cash figures can be 4-5 months old, and companies often raise money right before a readout. The flag means "check the latest filing", not "this company will fail".
+
+## 2026-11-12 - Terminal-style look and the name TOPLINE
+- **Look:** professional trading-terminal style. Black background, one monospace font, square corners, thin gray borders, small uppercase amber section labels, dense layout, no colored message boxes (plain `NOTE:` / `WARN:` lines instead). Set in `.streamlit/config.toml` plus a little CSS in `app.py`. The style imitates the *genre* of terminals, not any company's name or branding.
+- **Status bar** across the top: name, data date, trial/ticker/catalyst/event counts, cash flags, and "NOT INVESTMENT ADVICE". The full disclaimer stays in the footer.
+- **Tabs** use short numbered codes: 1 CAL, 2 CO, 3 EVT, 4 SLIP, 5 METH.
+- **Chart series colors:** amber #d07c00, blue #1e90ff, magenta #d43fbf, checked with a colorblind-safety validator on the black background (all pairs pass). Phases and size groups keep fixed colors.
+- **Signed numbers** (CAR, t-stat, cash cushion) are green when positive and red when negative, always with a +/- sign so color is never the only signal.
+- **Name: TOPLINE** ("top-line results" = a trial's first headline results; "top line" is also a finance term). Set in one place (`APP_NAME` in `app.py`). The README and repo still use "Biotech Catalyst Tracker" until the name is confirmed.

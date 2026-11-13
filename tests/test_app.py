@@ -21,8 +21,9 @@ def test_dashboard_runs_without_errors(monkeypatch):
     app = AppTest.from_file(APP, default_timeout=60).run()
     assert not app.exception
     assert len(app.tabs) == 5
-    # The disclaimer is shown at the top.
-    assert any("Not investment advice" in box.value for box in app.info)
+    # The disclaimer is shown in the status bar at the top and in the footer.
+    text = " ".join(m.value for m in app.markdown).lower()
+    assert text.count("not investment advice") >= 2
 
 
 def test_filters_that_match_nothing_do_not_crash(monkeypatch):
@@ -47,7 +48,7 @@ def test_company_with_cash_runway_section(monkeypatch):
         pytest.skip("no small company with cash data in this export")
     ticker.set_value(sorted(runway_tickers)[0]).run()
     assert not app.exception
-    assert any("Monthly burn" in m.label for m in app.metric)
+    assert any("Burn / month" in m.label for m in app.metric)
 
 
 def test_dashboard_does_not_load_the_data_pipeline(tmp_path):
