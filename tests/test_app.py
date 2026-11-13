@@ -36,6 +36,20 @@ def test_filters_that_match_nothing_do_not_crash(monkeypatch):
     assert not app.exception
 
 
+def test_company_with_cash_runway_section(monkeypatch):
+    if not REAL_DB.exists():
+        pytest.skip("run python -m src.export first")
+    monkeypatch.setenv("DASHBOARD_DB", str(REAL_DB))
+    app = AppTest.from_file(APP, default_timeout=60).run()
+    ticker = app.selectbox[0]
+    runway_tickers = {"SKYE", "VERU", "BMEA"} & set(ticker.options)
+    if not runway_tickers:
+        pytest.skip("no small company with cash data in this export")
+    ticker.set_value(sorted(runway_tickers)[0]).run()
+    assert not app.exception
+    assert any("Monthly burn" in m.label for m in app.metric)
+
+
 def test_missing_data_file_shows_a_message(monkeypatch, tmp_path):
     monkeypatch.setenv("DASHBOARD_DB", str(tmp_path / "nothing.db"))
     app = AppTest.from_file(APP, default_timeout=60).run()

@@ -55,8 +55,8 @@ Done so far: stages 1-5 for obesity, type 1 diabetes and type 2 diabetes.
 Run the pipeline in this order:
 1. `python -m src.fetch`
 2. `python -m src.store` (runs the cleaning itself; `python -m src.clean` only writes a CSV for checking)
-3. `python -m src.enrich` (matching + prices)
-4. `python -m src.analytics` (catalyst calendar), `python -m src.analytics events` (event study), `python -m src.analytics slippage` (date slippage; needs 2+ weekly snapshots)
+3. `python -m src.enrich` (matching + prices + cash for companies under $1B)
+4. `python -m src.analytics` (catalyst calendar), `python -m src.analytics events` (event study), `python -m src.analytics slippage` (date slippage; needs 2+ weekly snapshots), `python -m src.analytics runway` (cash runway vs. readout)
 5. `python -m src.export` (writes `dashboard_data/dashboard.db` for the dashboard; commit it), then `streamlit run app.py`
 
 Other things to know:

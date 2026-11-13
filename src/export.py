@@ -15,6 +15,7 @@ Tables in dashboard.db:
   car_paths         average CAR by trading day (-10 to +60), by size group
   slippage_changes  date moves / status changes between snapshots
   slippage_sponsors sponsor reliability + overdue counts
+  cash_runway       cash runway vs. readout, companies under $1B
   meta              data date, export date, and a few headline numbers
 
 Run it from the project folder (after the pipeline) with:
@@ -115,6 +116,7 @@ def build_export(as_of=None, source_db=DB_PATH):
         "car_paths": paths,
         "slippage_changes": changes,
         "slippage_sponsors": sponsors,
+        "cash_runway": analytics.build_runway_table(as_of, db_path=source_db),
         "meta": pd.DataFrame({"key": list(meta), "value": [str(v) for v in meta.values()]}),
     }
 

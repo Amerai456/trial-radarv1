@@ -87,3 +87,15 @@ Record important decisions and the reasoning behind them.
 - **New event-study chart:** average and median CAR for each trading day from -10 to +60 (added up from day -10), by company size at the time. The median is the default because a few huge winners pull the mean up.
 - **Disclaimer** at the top and bottom of the page (visible on every tab): "For educational purposes only. Not investment advice. Data from ClinicalTrials.gov and Yahoo Finance may be incomplete or delayed."
 - **Colors** are fixed per category (each phase and size group always keeps the same color, whatever the filter).
+
+## 2026-11-12 - Cash runway vs. readout ("Zombie Biotech Identifier")
+- **Who:** companies under **$1B** market cap with an open trial (13 companies, 15 trials on 2026-11-12).
+- **Trial date:** the **expected primary completion date** (when the main data is collected and top-line results follow; the same date as the calendar and event study). The study completion date (often much later because of long-term follow-up) is shown too, but the flag uses the primary date.
+- **Trial dates come from our database** (already downloaded from the ClinicalTrials.gov API), not a separate live query.
+- **Cash** = Yahoo's "cash, cash equivalents and short-term investments" from the latest quarterly balance sheet (fallback: cash and cash equivalents).
+- **Monthly burn** = average quarterly operating cash flow over the last **4 quarters** / 3 (one lumpy quarter can't dominate). A company that isn't burning cash on average gets "no burn" and no flag.
+- **Runway end** = balance-sheet date + cash / monthly burn (counted from the balance-sheet date, not today). **Cushion** = runway end - trial date in average months (30.44 days); negative = cash runs out first -> flag **"cash may run out before readout"**. Trials whose readout date already passed get no flag.
+- **New table `cash_runway`** (one row per ticker: balance-sheet date, cash, the 4 quarterly cash flows, update date), rebuilt by `python -m src.enrich` (Part C).
+- **Not part of the impact score**; shown as a calendar warning and in the dashboard's Company view.
+- **Wording:** shown as "cash may run out before readout", because "zombie company" in finance usually means a company that can't cover its debt interest.
+- **Main limitation:** cash figures can be 4-5 months old, and companies often raise money right before a readout. The flag means "check the latest filing", not "this company will fail".

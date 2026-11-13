@@ -467,6 +467,100 @@ def update_prices(tickers, run_date, db_path=DB_PATH,
     return [t for t, f in frames.items() if f.empty]
 
 
+# ===========================================================================
+# Part C: cash and cash burn (for the "Zombie Biotech Identifier")
+# ===========================================================================
+# For small companies, we save the latest cash balance and the last 4
+# quarters of operating cash flow (cash spent running the business), so the
+# analysis can estimate how long the cash lasts. Yahoo's numbers come from
+# quarterly filings, so they can be up to ~4-5 months old.
+# (Decisions logged in notes/decisions.md, 2026-11-12.)
+
+RUNWAY_MAX_MARKET_CAP = 1e9   # only companies under $1B
+CASH_ROWS = ["Cash Cash Equivalents And Short Term Investments",   # preferred
+             "Cash And Cash Equivalents"]                          # fallback
+CASH_FLOW_ROW = "Operating Cash Flow"
+BURN_QUARTERS = 4
+
+CREATE_CASH_RUNWAY = """
+CREATE TABLE IF NOT EXISTS cash_runway (
+    ticker              TEXT PRIMARY KEY,
+    balance_sheet_date  TEXT,     -- date of the cash figure (end of a quarter)
+    cash                REAL,     -- cash + equivalents + short-term investments, $
+    cash_source         TEXT,     -- which Yahoo row the cash came from
+    ocf_latest_date     TEXT,     -- end date of the most recent cash-flow quarter
+    ocf_1               REAL,     -- operating cash flow, most recent quarter ($)
+    ocf_2               REAL,
+    ocf_3               REAL,
+    ocf_4               REAL,     -- 4 quarters ago
+    ocf_quarters        INTEGER,  -- how many of ocf_1..ocf_4 are filled in
+    updated_on          TEXT
+)
+"""
+
+
+def parse_cash_data(balance_sheet, cash_flow):
+    """Pick the latest cash figure and the last 4 quarterly operating cash
+    flows out of Yahoo's tables (rows = items, columns = quarter-end dates).
+    Anything missing stays None."""
+    result = {"balance_sheet_date": None, "cash": None, "cash_source": None,
+              "ocf_latest_date": None, "ocf_quarters": 0}
+    result.update({f"ocf_{i}": None for i in range(1, BURN_QUARTERS + 1)})
+
+    if balance_sheet is not None and not balance_sheet.empty:
+        for row in CASH_ROWS:
+            if row in balance_sheet.index:
+                cash = balance_sheet.loc[row].dropna().sort_index()
+                if len(cash):
+                    result.update(balance_sheet_date=cash.index[-1].date().isoformat(),
+                                  cash=float(cash.iloc[-1]), cash_source=row)
+                    break
+
+    if cash_flow is not None and not cash_flow.empty and CASH_FLOW_ROW in cash_flow.index:
+        flows = cash_flow.loc[CASH_FLOW_ROW].dropna().sort_index(ascending=False)
+        flows = flows.iloc[:BURN_QUARTERS]
+        if len(flows):
+            result["ocf_latest_date"] = flows.index[0].date().isoformat()
+            result["ocf_quarters"] = len(flows)
+            for i, value in enumerate(flows, start=1):
+                result[f"ocf_{i}"] = float(value)
+    return result
+
+
+def fetch_cash_data(ticker):
+    """Download one company's quarterly balance sheet and cash-flow table."""
+    try:
+        stock = yf.Ticker(ticker)
+        return parse_cash_data(stock.quarterly_balance_sheet, stock.quarterly_cashflow)
+    except Exception:   # yfinance raises many different errors for missing data
+        return parse_cash_data(None, None)
+
+
+def update_cash_runway(tickers, run_date, db_path=DB_PATH, fetch=fetch_cash_data):
+    """Part C from start to finish: rebuild the cash_runway table.
+    Returns the tickers that had no usable cash or cash-flow data."""
+    rows, missing = [], []
+    for ticker in tickers:
+        data = fetch(ticker)
+        if data["cash"] is None or data["ocf_quarters"] == 0:
+            missing.append(ticker)
+        rows.append((ticker, data["balance_sheet_date"], data["cash"], data["cash_source"],
+                     data["ocf_latest_date"], data["ocf_1"], data["ocf_2"], data["ocf_3"],
+                     data["ocf_4"], data["ocf_quarters"], run_date))
+        time.sleep(INFO_PAUSE_SECONDS)
+
+    conn = connect(db_path)
+    try:
+        with conn:
+            conn.execute(CREATE_CASH_RUNWAY)
+            conn.execute("DELETE FROM cash_runway")   # full refresh each run
+            conn.executemany("INSERT INTO cash_runway VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                             rows)
+    finally:
+        conn.close()
+    return missing
+
+
 def match_step(run_date):
     """Part A from start to finish (sponsor -> ticker matching)."""
     companies = load_sec_companies()
@@ -516,6 +610,16 @@ def main():
     print("Thinly traded (no trading on more than 5% of days in the last 2 years):")
     for ticker, share in thin:
         print(f"  {ticker:6} {share:.0%}")
+
+    conn = connect()
+    small = [r[0] for r in conn.execute(
+        "SELECT ticker FROM ticker_info WHERE market_cap < ? ORDER BY ticker",
+        (RUNWAY_MAX_MARKET_CAP,))]
+    conn.close()
+    print(f"\nPART C: cash and cash burn for {len(small)} companies under "
+          f"${RUNWAY_MAX_MARKET_CAP / 1e9:.0f}B")
+    missing = update_cash_runway(small, run_date)
+    print(f"  saved to table cash_runway; no usable data for: {missing if missing else 'none'}")
 
 
 if __name__ == "__main__":

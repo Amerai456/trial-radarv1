@@ -2,6 +2,7 @@
 Part 1: catalyst calendar and impact score.
 Part 2: event study (how sponsor stocks moved around past trial completions).
 Part 3: date slippage (how often sponsors push their expected dates back).
+Part 4: cash runway vs. readout ("Zombie Biotech Identifier").
 
 The catalyst calendar lists upcoming trial readouts that investors can
 trade: open trials whose sponsor has a US stock ticker, with an expected
@@ -24,6 +25,7 @@ Run it from the project folder with:
     python -m src.analytics           (catalyst calendar)
     python -m src.analytics events    (event study)
     python -m src.analytics slippage  (date slippage)
+    python -m src.analytics runway    (cash runway vs. readout)
 """
 
 import json
@@ -36,7 +38,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.enrich import BENCHMARK
+from src.enrich import BENCHMARK, RUNWAY_MAX_MARKET_CAP
 from src.fetch import PAUSE_SECONDS, get_json_with_retries
 from src.store import DB_PATH, connect
 
@@ -225,6 +227,13 @@ def build_catalyst_calendar(as_of=None, db_path=DB_PATH, lookup=count_open_trial
         zip(trials["size_part"], trials["concentration_part"], trials["phase_part"])
     ]
     trials["flags"] = trials.apply(lambda row: make_flags(row, as_of), axis=1)
+    # Extra warning from part 4: the cash may run out before this readout.
+    runway = build_runway_table(as_of, db_path)
+    if not runway.empty:
+        short_of_cash = set(runway.loc[runway["flagged"], "nct_id"])
+        trials["flags"] = [
+            "; ".join(f for f in [flags, RUNWAY_FLAG] if isinstance(f, str)) if nct in short_of_cash else flags
+            for nct, flags in zip(trials["nct_id"], trials["flags"])]
 
     columns = [
         "section", "primary_completion_date", "primary_completion_date_type",
@@ -696,6 +705,114 @@ def build_slippage(as_of=None, db_path=DB_PATH):
     return changes.reset_index(drop=True), trials, sponsors, sorted(snaps["snapshot_date"].unique())
 
 
+# ===========================================================================
+# Part 4: cash runway vs. readout ("Zombie Biotech Identifier")
+# ===========================================================================
+#
+# For companies under $1B with an open trial: does the cash last until the
+# trial's expected primary completion date?
+#   monthly burn  = average quarterly operating cash outflow (last 4 quarters) / 3
+#   runway (mo)   = cash / monthly burn
+#   runway end    = balance-sheet date + runway
+#   cushion (mo)  = runway end - trial date, in months. NEGATIVE = the cash
+#                   runs out that many months BEFORE the readout -> flag.
+# Companies often raise money after the balance-sheet date, so the flag
+# means "check the latest filing", not "this company will fail".
+# (Decisions logged in notes/decisions.md, 2026-11-12.)
+
+DAYS_PER_MONTH = 365.25 / 12   # 30.4375, an average month
+RUNWAY_FLAG = "cash may run out before readout"
+
+RUNWAY_QUERY = f"""
+SELECT t.nct_id, s.ticker, t.lead_sponsor, t.phase, t.overall_status, t.title,
+       t.primary_completion_date, t.primary_completion_date_type,
+       t.completion_date, t.completion_date_type, i.market_cap,
+       c.balance_sheet_date, c.cash, c.ocf_latest_date,
+       c.ocf_1, c.ocf_2, c.ocf_3, c.ocf_4, c.ocf_quarters
+FROM trials t
+JOIN sponsor_tickers s ON s.sponsor_name = t.lead_sponsor
+JOIN ticker_info i ON i.ticker = s.ticker
+JOIN cash_runway c ON c.ticker = s.ticker
+WHERE t.overall_status IN ({", ".join("'" + s + "'" for s in OPEN_STATUSES)})
+"""
+
+
+def monthly_burn(quarterly_cash_flows):
+    """Average monthly cash spent, from quarterly operating cash flows
+    (negative = cash going out). Returns 0.0 if the company isn't burning
+    cash on average, None if there is no data."""
+    flows = [f for f in quarterly_cash_flows if f is not None and pd.notna(f)]
+    if not flows:
+        return None
+    average_quarter = sum(flows) / len(flows)
+    return max(-average_quarter / 3, 0.0)
+
+
+def months_between(start, end):
+    """Months from start to end (negative if end is earlier), 1 decimal."""
+    return round((pd.Timestamp(end) - pd.Timestamp(start)).days / DAYS_PER_MONTH, 1)
+
+
+def runway_row(row, as_of):
+    """Runway numbers and status for one trial."""
+    burn = monthly_burn([row["ocf_1"], row["ocf_2"], row["ocf_3"], row["ocf_4"]])
+    out = {"monthly_burn": burn, "runway_months": None, "runway_end": None,
+           "cushion_months": None, "cushion_study_months": None}
+    if row["cash"] is None or pd.isna(row["cash"]) or burn is None:
+        return {**out, "runway_status": "no cash data"}
+    if burn == 0:
+        return {**out, "runway_status": "no burn (cash flow positive)"}
+
+    runway = row["cash"] / burn
+    end = (pd.Timestamp(row["balance_sheet_date"])
+           + pd.Timedelta(days=runway * DAYS_PER_MONTH)).normalize()   # whole day
+    out.update(runway_months=round(runway, 1), runway_end=end.date().isoformat())
+    if isinstance(row["primary_completion_date"], str):
+        out["cushion_months"] = months_between(row["primary_completion_date"], end)
+    if isinstance(row["completion_date"], str):
+        out["cushion_study_months"] = months_between(row["completion_date"], end)
+
+    if out["cushion_months"] is None:
+        status = "no trial date"
+    elif row["primary_completion_date"] < as_of:
+        status = "readout date already passed"
+    elif out["cushion_months"] < 0:
+        status = RUNWAY_FLAG
+    else:
+        status = "enough cash to readout"
+    return {**out, "runway_status": status}
+
+
+def build_runway_table(as_of=None, db_path=DB_PATH, max_market_cap=RUNWAY_MAX_MARKET_CAP):
+    """One row per open trial of a company under $1B that has cash data,
+    flagged ones first. Empty if the cash_runway table doesn't exist yet."""
+    as_of = as_of or date.today().isoformat()
+    conn = connect(db_path)
+    has_table = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                             "AND name = 'cash_runway'").fetchone()
+    trials = pd.read_sql(RUNWAY_QUERY, conn) if has_table else pd.DataFrame()
+    conn.close()
+    if trials.empty:
+        return trials
+    trials = trials[trials["market_cap"] < max_market_cap].copy()
+    results = pd.DataFrame([runway_row(r, as_of) for _, r in trials.iterrows()],
+                           index=trials.index)
+    trials = pd.concat([trials, results], axis=1)
+    trials["flagged"] = trials["runway_status"] == RUNWAY_FLAG
+    trials["months_since_balance_sheet"] = [
+        months_between(d, as_of) if isinstance(d, str) else None
+        for d in trials["balance_sheet_date"]]
+    columns = [
+        "flagged", "runway_status", "ticker", "nct_id", "phase", "lead_sponsor",
+        "primary_completion_date", "primary_completion_date_type", "cushion_months",
+        "completion_date", "cushion_study_months", "runway_end", "runway_months",
+        "monthly_burn", "cash", "balance_sheet_date", "months_since_balance_sheet",
+        "market_cap", "ocf_1", "ocf_2", "ocf_3", "ocf_4", "ocf_quarters", "title",
+    ]
+    return trials[columns].sort_values(["flagged", "cushion_months"], ascending=[False, True]) \
+                          .reset_index(drop=True)
+
+
 # --- command line ---------------------------------------------------------
 
 def calendar_main():
@@ -797,15 +914,44 @@ def slippage_main():
     print(f"\nSaved slippage_changes/trials/sponsors_{as_of}.csv in {OUTPUT_DIR}")
 
 
+def runway_main():
+    as_of = date.today().isoformat()
+    table = build_runway_table(as_of)
+    if table.empty:
+        print("No cash data yet. Run: python -m src.enrich")
+        return
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    path = OUTPUT_DIR / f"cash_runway_{as_of}.csv"
+    table.to_csv(path, index=False)
+
+    print(f"Cash runway vs. expected primary completion, open trials of companies "
+          f"under $1B ({table['ticker'].nunique()} companies, {len(table)} trials):\n")
+    print(f"  {'ticker':6} {'trial date':10} {'cash $M':>8} {'burn $M/mo':>10} "
+          f"{'runway end':>10} {'cushion mo':>10}  status")
+    for _, r in table.iterrows():
+        def num(x, scale=1e6):
+            return f"{x / scale:,.1f}" if x is not None and pd.notna(x) else "n/a"
+        cushion = f"{r['cushion_months']:+.1f}" if pd.notna(r["cushion_months"]) else "n/a"
+        print(f"  {r['ticker']:6} {r['primary_completion_date'] or 'n/a':10} "
+              f"{num(r['cash']):>8} {num(r['monthly_burn']):>10} "
+              f"{r['runway_end'] or 'n/a':>10} {cushion:>10}  {r['runway_status']}")
+    print(f"\n{int(table['flagged'].sum())} trials flagged '{RUNWAY_FLAG}'. "
+          f"Cash figures are from the latest quarterly filing; check for newer "
+          f"fundraising before drawing conclusions.\nSaved {path}")
+
+
 def main(args=None):
     """python -m src.analytics            -> catalyst calendar
        python -m src.analytics events     -> event study
-       python -m src.analytics slippage   -> date slippage"""
+       python -m src.analytics slippage   -> date slippage
+       python -m src.analytics runway     -> cash runway vs. readout"""
     args = sys.argv[1:] if args is None else args
     if args and args[0] == "events":
         event_study_main()
     elif args and args[0] == "slippage":
         slippage_main()
+    elif args and args[0] == "runway":
+        runway_main()
     else:
         calendar_main()
 

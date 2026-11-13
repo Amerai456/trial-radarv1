@@ -143,7 +143,10 @@ def calendar_tab(t):
             "- **data collected**: the trial finished collecting data; results can come any day.\n"
             "- **month-only date**: the sponsor gave only a month; we use its last day.\n"
             "- **thinly traded**: the stock had no trades on over 5% of days in the last 2 years.\n"
-            "- **no market cap**: size unknown, so no score.")
+            "- **no market cap**: size unknown, so no score.\n"
+            "- **cash may run out before readout**: at its recent cash burn, the company's "
+            "cash (from its latest quarterly filing) runs out before this trial's expected "
+            "primary completion date. It may have raised money since; check newer filings.")
 
 
 # --- tab 2: company view --------------------------------------------------
@@ -168,7 +171,8 @@ def company_tab(t):
     sponsor = t["slippage_sponsors"].set_index("company")
     m1, m2, m3, m4 = st.columns(4)
     cap = companies.loc[ticker, "market_cap"] if ticker in companies.index else None
-    m1.metric("Market cap today", f"${cap / 1e9:,.2f}B" if pd.notna(cap) else "n/a")
+    m1.metric("Market cap today", "n/a" if cap is None or pd.isna(cap) else
+              f"${cap / 1e9:,.2f}B" if cap >= 1e9 else f"${cap / 1e6:,.1f}M")
     m2.metric("Open trials (our diseases)",
               int(trials["overall_status"].isin(OPEN_STATUSES).sum()))
     m3.metric("Upcoming catalysts (12 mo)", int((upcoming["ticker"] == ticker).sum()))
@@ -202,6 +206,8 @@ def company_tab(t):
         st.caption("Dotted gray lines: past trial completions (actual dates). "
                    "Dashed orange lines: upcoming expected completions.")
 
+    runway_section(t, ticker)
+
     st.markdown("**Trials in obesity and diabetes**")
     st.dataframe(
         trials.sort_values("primary_completion_date", ascending=False)[
@@ -226,6 +232,43 @@ def company_tab(t):
                 "n_trials": "Trials",
                 "car_short": st.column_config.NumberColumn("CAR days -1..+1", format="percent"),
                 "car_post": st.column_config.NumberColumn("CAR days 0..+60", format="percent")})
+
+
+def runway_section(t, ticker):
+    """Cash runway vs. readout, for companies under $1B with an open trial."""
+    runway = t.get("cash_runway")
+    if runway is None or runway.empty or ticker not in set(runway["ticker"]):
+        return
+    mine = runway[runway["ticker"] == ticker]
+    first = mine.iloc[0]
+    st.markdown("**Cash runway vs. readout**")
+    r1, r2, r3, r4 = st.columns(4)
+    r1.metric(f"Cash ({first['balance_sheet_date']})", f"${first['cash'] / 1e6:,.1f}M")
+    burn = first["monthly_burn"]
+    r2.metric("Monthly burn (avg. last 4 quarters)",
+              f"${burn / 1e6:,.1f}M" if pd.notna(burn) else "n/a")
+    r3.metric("Runway", f"{first['runway_months']:.1f} months"
+              if pd.notna(first["runway_months"]) else "n/a")
+    r4.metric("Cash runs out around", first["runway_end"] or "n/a")
+    if mine["flagged"].astype(bool).any():
+        st.warning("⚠️ **Cash may run out before readout** for at least one trial below. "
+                   "Companies often raise money before a readout, which can dilute "
+                   "existing shareholders. Check filings newer than "
+                   f"{first['balance_sheet_date']}.")
+    st.dataframe(
+        mine[["nct_id", "phase", "primary_completion_date", "cushion_months",
+              "completion_date", "cushion_study_months", "runway_status"]],
+        hide_index=True, use_container_width=True,
+        column_config={
+            "nct_id": "Trial", "phase": "Phase",
+            "primary_completion_date": "Expected primary completion",
+            "cushion_months": st.column_config.NumberColumn(
+                "Cash cushion at readout (months)", format="%+.1f",
+                help="Runway end minus trial date. Negative = cash runs out first."),
+            "completion_date": "Study completion",
+            "cushion_study_months": st.column_config.NumberColumn(
+                "Cushion at study completion", format="%+.1f"),
+            "runway_status": "Status"})
 
 
 # --- tab 3: event study ---------------------------------------------------
@@ -342,6 +385,13 @@ results were good or bad, the key measure is the *size* of the move (|CAR|).
 
 **Date slippage.** Each weekly run saves a snapshot of every trial's dates; comparing
 snapshots shows when sponsors push dates back.
+
+**Cash runway vs. readout** (companies under $1B). Monthly burn = average quarterly
+operating cash outflow over the last 4 quarters ÷ 3. Runway = cash (incl. short-term
+investments) ÷ monthly burn, counted from the latest balance-sheet date. If the runway
+ends before a trial's expected primary completion date, the trial is flagged "cash may
+run out before readout" - a sign the company may need to raise money first. The cash
+figure can be months old, so the company may already have raised money.
 
 **Limitations.**
 - *Survivorship bias*: only companies listed today are matched.
