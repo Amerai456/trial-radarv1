@@ -36,6 +36,7 @@ AMBER, BLUE, MAGENTA = "#d07c00", "#1e90ff", "#d43fbf"   # chart series
 HILITE = "#ffa028"                                       # bright amber for text
 GRAY, DIM, GRID = "#8c8c8c", "#5a5a5a", "#1c1c1c"
 GREEN, RED = "#33d17a", "#ff4040"
+MONO = "'IBM Plex Mono', Consolas, monospace"   # numbers, status bar, charts
 PHASE_COLORS = {"PHASE2": AMBER, "PHASE2/PHASE3": MAGENTA, "PHASE3": BLUE}
 SIZE_COLORS = {"small (<$2B)": AMBER, "mid ($2-20B)": MAGENTA, "large (>$20B)": BLUE}
 SIZE_ORDER = ["small (<$2B)", "mid ($2-20B)", "large (>$20B)"]
@@ -48,20 +49,26 @@ CSS = f"""
 header[data-testid="stHeader"] {{ background: transparent; height: 2rem; }}
 .block-container {{ padding-top: 2.2rem !important; }}
 * {{ border-radius: 0 !important; }}
-.tl-bar {{ border-bottom: 1px solid #333; padding: 2px 0 6px 0; margin-bottom: 4px;
-          white-space: nowrap; overflow-x: auto; font-size: 0.85rem; }}
+.tl-bar {{ border-bottom: 1px solid #333; padding: 2px 0 6px 0; margin-bottom: 2px;
+          white-space: nowrap; overflow-x: auto; font-size: 0.85rem; font-family: {MONO}; }}
+.tl-hint {{ color: {GRAY}; font-size: 0.78rem; margin-bottom: 6px; }}
+.tl-hint b {{ color: {HILITE}; font-weight: 500; }}
 .tl-bar .name {{ color: #000; background: {HILITE}; font-weight: 700; padding: 1px 6px; }}
 .tl-bar .item {{ color: {GRAY}; margin-left: 18px; }}
 .tl-bar .item b {{ color: #e0e0e0; font-weight: 600; }}
 .tl-bar .risk {{ color: {RED}; margin-left: 18px; }}
 .tl-h {{ color: {HILITE}; text-transform: uppercase; letter-spacing: 0.06em;
-         font-size: 0.8rem; border-bottom: 1px solid #333; margin: 10px 0 6px 0;
-         padding-bottom: 2px; }}
+         font-size: 0.78rem; font-weight: 600; border-bottom: 1px solid #333;
+         margin: 18px 0 8px 0; padding-bottom: 3px; }}
+.tl-desc {{ color: #b5b5b5; font-size: 0.85rem; margin: -2px 0 8px 0; }}
 .tl-note {{ color: {GRAY}; font-size: 0.8rem; }}
 .tl-warn {{ color: {HILITE}; font-size: 0.8rem; }}
 .tl-warn b, .tl-note b {{ color: #e0e0e0; }}
 [data-testid="stMetricLabel"] p {{ text-transform: uppercase; font-size: 0.7rem;
-                                   color: {GRAY}; }}
+                                   letter-spacing: 0.04em; color: {GRAY}; }}
+[data-testid="stMetricValue"] {{ font-family: {MONO}; }}
+[data-testid="stExpander"] summary p {{ font-weight: 500; }}
+.tl-help p, .tl-help li {{ line-height: 1.55; }}
 button[data-baseweb="tab"] p {{ font-size: 0.8rem; letter-spacing: 0.04em; }}
 </style>
 """
@@ -72,6 +79,11 @@ button[data-baseweb="tab"] p {{ font-size: 0.8rem; letter-spacing: 0.04em; }}
 def section(label):
     """A small uppercase amber label with a thin line (instead of big headings)."""
     st.markdown(f'<div class="tl-h">{label}</div>', unsafe_allow_html=True)
+
+
+def describe(text):
+    """One plain line under a section label saying what the chart or table shows."""
+    st.markdown(f'<div class="tl-desc">{text}</div>', unsafe_allow_html=True)
 
 
 def note(text):
@@ -89,11 +101,11 @@ def terminal_chart(fig, height=340):
     fig.update_layout(
         height=height, margin={"t": 24, "b": 8, "l": 8, "r": 8},
         paper_bgcolor="#000", plot_bgcolor="#000",
-        font={"family": "Consolas, 'Courier New', monospace", "size": 11, "color": "#e0e0e0"},
+        font={"family": MONO, "size": 11, "color": "#e0e0e0"},
         legend={"orientation": "h", "y": 1.02, "yanchor": "bottom", "x": 0, "title": None,
                 "font": {"color": "#e0e0e0"}},
         hoverlabel={"bgcolor": "#000", "bordercolor": HILITE,
-                    "font": {"family": "Consolas, monospace", "color": "#e0e0e0"}},
+                    "font": {"family": MONO, "color": "#e0e0e0"}},
         xaxis=axis, yaxis=axis)
     return fig
 
@@ -153,26 +165,51 @@ def disease_labels(matched):
 
 # --- tab 1: catalyst calendar ---------------------------------------------
 
+CAL_SECTIONS = {"Upcoming (next 12 months)": "upcoming",
+                "Date already passed (last 12 months)": "past date"}
+CAL_DEFAULTS = {"cal_section": list(CAL_SECTIONS)[0], "cal_diseases": list(DISEASES),
+                "cal_phases": list(PHASE_COLORS), "cal_sizes": SIZE_ORDER,
+                "cal_min_score": 0}
+
+
+def reset_calendar_filters():
+    """Put every calendar filter back to 'show everything'."""
+    for key, value in CAL_DEFAULTS.items():
+        st.session_state[key] = list(value) if isinstance(value, list) else value
+
+
 def calendar_tab(t):
     section("Catalyst calendar · open Phase 2/3 trials of US-listed companies")
     note("Impact score 0-100 = 50% company size + 30% concentration + 20% phase. "
          "Higher = likely bigger stock move.")
+    for key, value in CAL_DEFAULTS.items():
+        st.session_state.setdefault(key, list(value) if isinstance(value, list) else value)
     cal = t["calendar"].copy()
     cal["size_group"] = cal["market_cap"].map(size_group)
     cal["diseases"] = cal["matched_searches"].map(disease_labels)
 
-    section_choice = st.radio("Show", ["Upcoming (next 12 months)",
-                                       "Date already passed (last 12 months)"],
-                              horizontal=True)
-    cal = cal[cal["section"] == ("upcoming" if section_choice.startswith("Upcoming")
-                                 else "past date")]
-
-    c1, c2, c3, c4 = st.columns(4)
-    diseases = c1.multiselect("Disease", list(DISEASES), default=list(DISEASES),
-                              format_func=DISEASES.get)
-    phases = c2.multiselect("Phase", list(PHASE_COLORS), default=list(PHASE_COLORS))
-    sizes = c3.multiselect("Company size", SIZE_ORDER, default=SIZE_ORDER)
-    min_score = c4.slider("Minimum impact score", 0, 100, 0)
+    with st.container(border=True):
+        st.markdown('<div class="tl-h" style="margin-top:0">Filters</div>',
+                    unsafe_allow_html=True)
+        section_choice = st.radio(
+            "Show", list(CAL_SECTIONS), horizontal=True, key="cal_section",
+            help="Upcoming = expected to finish in the next 12 months. Date already passed "
+                 "= expected date was in the last 12 months; results may be out or due.")
+        c1, c2, c3, c4 = st.columns(4)
+        diseases = c1.multiselect("Disease", list(DISEASES), key="cal_diseases",
+                                  format_func=DISEASES.get,
+                                  help="A trial can count for more than one disease.")
+        phases = c2.multiselect("Phase", list(PHASE_COLORS), key="cal_phases",
+                                help="Phase 3 results usually decide whether a drug is "
+                                     "approved; Phase 2 shows whether it works at all.")
+        sizes = c3.multiselect("Company size", SIZE_ORDER, key="cal_sizes",
+                               help="By today's market cap. Small companies usually move "
+                                    "much more on one trial result.")
+        min_score = c4.slider("Minimum impact score", 0, 100, key="cal_min_score",
+                              help="0-100. Higher = the result is likely to move the "
+                                   "stock more. Trials without a score show only at 0.")
+        st.button("Reset filters", on_click=reset_calendar_filters)
+    cal = cal[cal["section"] == CAL_SECTIONS[section_choice]]
 
     keep = (cal["matched_searches"].fillna("").map(
                 lambda m: any(d in m.split("; ") for d in diseases))
@@ -181,7 +218,7 @@ def calendar_tab(t):
             & ((cal["impact_score"] >= min_score)
                | (cal["impact_score"].isna() & (min_score == 0))))
     cal = cal[keep].sort_values("impact_score", ascending=False)
-    section(f"{len(cal)} trials")
+    section(f"{len(cal)} trials · timeline")
     if cal.empty:
         note("No trials match these filters.")
         return
@@ -201,8 +238,14 @@ def calendar_tab(t):
                 "impact_score": "IMPACT SCORE", "phase": "Phase", "lead_sponsor": "Sponsor"})
     fig.update_traces(marker={"symbol": "square", "opacity": 0.9, "line": {"width": 0}})
     fig.update_layout(yaxis_range=[0, 100])
+    describe("Each square is one trial: left to right = expected completion date, "
+             "higher = bigger likely stock move, bigger square = smaller company. "
+             "Hover for details.")
     st.plotly_chart(terminal_chart(fig), width="stretch")
-    note("Bigger square = smaller company (a bigger share of its value rides on the trial).")
+
+    section("Trials ranked by impact score")
+    describe("Click a column name to sort. 'open' goes to the trial's page on "
+             "ClinicalTrials.gov.")
 
     cal = with_links(cal)
     cal["market_cap_b"] = cal["market_cap"] / 1e9
@@ -214,11 +257,19 @@ def calendar_tab(t):
         hide_index=True, width="stretch",
         column_config={
             "primary_completion_date": "DATE", "ticker": "TICKER",
-            "impact_score": st.column_config.NumberColumn("SCORE", format="%.1f"),
-            "phase": "PHASE", "flags": "WARNINGS", "lead_sponsor": "SPONSOR",
+            "impact_score": st.column_config.NumberColumn(
+                "SCORE", format="%.1f", help="Impact score 0-100: 50% company size, "
+                "30% concentration, 20% phase."),
+            "phase": "PHASE",
+            "flags": st.column_config.Column(
+                "WARNINGS", help="Red flags that don't change the score. See the legend "
+                "below the table."),
+            "lead_sponsor": "SPONSOR",
             "diseases": "DISEASE", "interventions": "DRUGS",
             "market_cap_b": st.column_config.NumberColumn("MKT CAP $B", format="%.2f"),
-            "open_trials_all_diseases": "OPEN TRIALS (ALL)",
+            "open_trials_all_diseases": st.column_config.Column(
+                "OPEN TRIALS (ALL)", help="The company's open Phase 2/3 trials in any "
+                "disease. Fewer = each trial matters more."),
             "enrollment": "PATIENTS", "link": link_column(),
         })
     with st.expander("Warnings legend"):
@@ -252,14 +303,19 @@ def company_tab(t):
 
     trials = with_links(t["company_trials"][t["company_trials"]["ticker"] == ticker])
     sponsor = t["slippage_sponsors"].set_index("company")
-    m1, m2, m3, m4 = st.columns(4)
-    cap = companies.loc[ticker, "market_cap"] if ticker in companies.index else None
-    m1.metric("Market cap", money(cap))
-    m2.metric("Open trials (our diseases)",
-              int(trials["overall_status"].isin(OPEN_STATUSES).sum()))
-    m3.metric("Catalysts next 12M", int((upcoming["ticker"] == ticker).sum()))
-    m4.metric("Overdue trials",
-              int(sponsor.loc[ticker, "overdue_now"]) if ticker in sponsor.index else 0)
+    with st.container(border=True):
+        m1, m2, m3, m4 = st.columns(4)
+        cap = companies.loc[ticker, "market_cap"] if ticker in companies.index else None
+        m1.metric("Market cap", money(cap),
+                  help="Total value of all the company's shares today (Yahoo Finance).")
+        m2.metric("Open trials (our diseases)",
+                  int(trials["overall_status"].isin(OPEN_STATUSES).sum()),
+                  help="Open Phase 2/3 trials in obesity and diabetes.")
+        m3.metric("Catalysts next 12M", int((upcoming["ticker"] == ticker).sum()),
+                  help="Trials expected to finish in the next 12 months.")
+        m4.metric("Overdue trials",
+                  int(sponsor.loc[ticker, "overdue_now"]) if ticker in sponsor.index else 0,
+                  help="Open trials whose expected date passed without an update.")
 
     # Price chart: stock vs XBI, both starting at 100.
     end = pd.Timestamp(prices["date"].max())
@@ -267,6 +323,8 @@ def company_tab(t):
     window = prices[(prices["date"] >= start) & prices["ticker"].isin([ticker, "XBI"])]
     wide = window.pivot(index="date", columns="ticker", values="adj_close").dropna()
     section(f"{ticker} vs XBI · value of $100 invested")
+    describe(f"If {ticker} (amber) pulls away from XBI (gray, biotech overall), the stock "
+             "moved on its own news rather than with the sector.")
     if wide.empty or ticker not in wide.columns:
         note("No price data for this period.")
     else:
@@ -323,12 +381,19 @@ def runway_section(t, ticker):
     mine = runway[runway["ticker"] == ticker]
     first = mine.iloc[0]
     section(f"Cash runway vs. readout · balance sheet {first['balance_sheet_date']}")
-    r1, r2, r3, r4 = st.columns(4)
-    r1.metric("Cash", money(first["cash"]))
-    r2.metric("Burn / month (4Q avg)", money(first["monthly_burn"]))
-    r3.metric("Runway", f"{first['runway_months']:.1f} mo"
-              if pd.notna(first["runway_months"]) else "n/a")
-    r4.metric("Cash out ~", first["runway_end"] or "n/a")
+    with st.container(border=True):
+        r1, r2, r3, r4 = st.columns(4)
+        r1.metric("Cash", money(first["cash"]),
+                  help="Cash, cash equivalents and short-term investments on the "
+                       "balance-sheet date.")
+        r2.metric("Burn / month (4Q avg)", money(first["monthly_burn"]),
+                  help="Average cash spent running the company per month, over the "
+                       "last 4 quarters.")
+        r3.metric("Runway", f"{first['runway_months']:.1f} mo"
+                  if pd.notna(first["runway_months"]) else "n/a",
+                  help="Cash / monthly burn: months until the money runs out.")
+        r4.metric("Cash out ~", first["runway_end"] or "n/a",
+                  help="Balance-sheet date + runway.")
     if mine["flagged"].astype(bool).any():
         warn("<b>Cash may run out before readout</b> for at least one trial below. "
              "Companies often raise money before a readout, which can dilute existing "
@@ -356,10 +421,16 @@ def event_tab(t, meta):
     note("Day 0 = a trial's actual primary completion date. Abnormal return = the "
          "stock's return minus what XBI predicted (market model). CAR = abnormal "
          "returns added up.")
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Events measured", meta.get("events_measured"))
-    m2.metric("Events excluded", meta.get("events_excluded"))
-    m3.metric("Score vs |move| (rank corr, 60D)", meta.get("score_backtest_post"))
+    with st.container(border=True):
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Events measured", meta.get("events_measured"),
+                  help="Past trial completions with clean price data.")
+        m2.metric("Events excluded", meta.get("events_excluded"),
+                  help="Dropped for a stated reason (too little price history, thin "
+                       "trading, ...). See 'All events' below.")
+        m3.metric("Score vs |move| (rank corr, 60D)", meta.get("score_backtest_post"),
+                  help="Did higher impact scores go with bigger moves? +1 = always, "
+                       "0 = no link. Positive = the score works.")
 
     paths = t["car_paths"]
     stat = st.radio("Average", ["median", "mean"], horizontal=True,
@@ -367,6 +438,8 @@ def event_tab(t, meta):
     shown = paths[paths["size_group"].isin(SIZE_ORDER)].copy()
     shown["CAR"] = shown[f"{stat}_car"]
     section(f"{stat} CAR by trading day · by company size at the time")
+    describe("How far the stock moved beyond what XBI predicted, added up day by day, "
+             "from 10 trading days before a trial finished to 60 after.")
     fig = px.line(shown, x="day", y="CAR", color="size_group",
                   color_discrete_map=SIZE_COLORS, category_orders={"size_group": SIZE_ORDER},
                   hover_data={"events": True},
@@ -482,6 +555,139 @@ figure can be months old, so the company may already have raised money.
 """)
 
 
+# --- tab 6: how to use ----------------------------------------------------
+
+def help_tab(t, meta):
+    upcoming = t["calendar"][t["calendar"]["section"] == "upcoming"]
+    top = upcoming.dropna(subset=["impact_score"]).sort_values("impact_score",
+                                                                ascending=False)
+    example = top.iloc[0] if len(top) else None
+
+    section("How to use TOPLINE")
+    st.markdown(
+        "TOPLINE lists upcoming clinical-trial results for obesity and diabetes drugs, "
+        "estimates how much each one could move the company's stock, and checks those "
+        "estimates against how stocks actually moved around past trials. It helps you "
+        "decide **what to research**, not what to buy.")
+
+    section("Quick start")
+    st.markdown(
+        "1. **1 CAL** - set *Minimum impact score* to about 70 to see the trials most "
+        "likely to move a stock.\n"
+        "2. **2 CO** - pick one of those tickers. Check the price chart, the cash runway "
+        "and the company's other trials.\n"
+        "3. **3 EVT** - see how similar companies moved around past trial completions.\n"
+        "4. **4 SLIP** - check whether the company usually hits its dates.")
+
+    section("The tabs in detail")
+    with st.expander("1 CAL - Calendar: what's coming up"):
+        st.markdown(
+            "- **Show** switches between trials expected in the next 12 months and trials "
+            "whose expected date passed in the last 12 months (their results may be out, "
+            "or overdue).\n"
+            "- **Filters** narrow the list by disease, phase, company size and minimum "
+            "score. *Reset filters* shows everything again.\n"
+            "- **Timeline chart** - each square is one trial. Left to right is the "
+            "expected completion date; higher means a bigger likely stock move; a bigger "
+            "square means a smaller company. Amber = Phase 2, blue = Phase 3, "
+            "magenta = Phase 2/3.\n"
+            "- **Table** - the same trials sorted by score. *WARNINGS* lists red flags "
+            "(the legend under the table explains each one). *open* goes to the trial on "
+            "ClinicalTrials.gov, where you can read the drug, the patients and what is "
+            "being measured.")
+    with st.expander("2 CO - Company: research one stock"):
+        st.markdown(
+            "- **Ticker** picks the company; **Period** sets 1, 3 or 5 years of history.\n"
+            "- **Key numbers** - market cap, open trials, catalysts in the next 12 months "
+            "and overdue trials.\n"
+            "- **Price chart** - what $100 in the stock (amber) would be worth against $100 "
+            "in XBI (gray, an ETF of biotech stocks). When the lines split, the company "
+            "moved on its own news. Dotted gray lines = past trial completions; dashed "
+            "blue lines = upcoming ones.\n"
+            "- **Cash runway** (companies under $1B) - cash, monthly spending, months of "
+            "cash left and the date it runs out. *Cushion* is runway end minus the trial "
+            "date: a red negative number means the money runs out before the result.\n"
+            "- **Trials** and **Past events** - every obesity/diabetes trial, and how the "
+            "stock moved after earlier completions (green = up, red = down).")
+    with st.expander("3 EVT - Event study: does history back the score?"):
+        st.markdown(
+            f"- Covers **{meta.get('events_measured')} past trial completions**. Day 0 is "
+            "the date a trial finished collecting its main data.\n"
+            "- **Chart** - the typical move beyond what XBI predicted, added up day by day, "
+            "split by company size at the time. *Median* = the typical event; *mean* = the "
+            "average, which a few huge winners pull up.\n"
+            "- **Table** - the same numbers by group. Switch *Window* between days 0 to +60 "
+            "and days -1 to +1.\n"
+            "- **Score vs |move|** - a positive number means trials with higher scores "
+            "really did have bigger moves.")
+    with st.expander("4 SLIP - Slippage: do companies keep delaying?"):
+        st.markdown(
+            "- Every weekly update saves each trial's dates, so moved dates show up after "
+            "the second update.\n"
+            "- **Sponsor reliability** - open trials, overdue trials (expected date passed "
+            "with no update), and, once a company has 3+ trials with history, how often "
+            "and by how many days it delays.\n"
+            "- A company that often slips makes its 'upcoming' dates less reliable.")
+    with st.expander("5 METH - Method: how it works"):
+        st.markdown("Where the data comes from, how every number is calculated, and the "
+                    "known limitations. Useful before explaining the project to someone.")
+
+    section("How to read the numbers")
+    with st.expander("Glossary"):
+        st.markdown(
+            "- **Impact score (0-100)** - 50% company size (smaller = higher), 30% "
+            "concentration (fewer open trials = higher), 20% phase (Phase 3 = higher).\n"
+            "- **Primary completion date** - when the trial finishes collecting the data "
+            "for its main question. Headline ('top-line') results usually follow within "
+            "weeks to a few months.\n"
+            "- **XBI** - an ETF holding many US biotech stocks; used as 'the market' for "
+            "biotech.\n"
+            "- **Abnormal return** - the stock's return minus what XBI predicted for it "
+            "that day.\n"
+            "- **CAR** - cumulative abnormal return: abnormal returns added up over a "
+            "window. **|CAR|** is its size, ignoring direction.\n"
+            "- **t-stat** - how sure we can be the average isn't zero by chance; above "
+            "about 2 (either sign) is usually taken as meaningful.\n"
+            "- **Unusual moves** - share of events whose move was bigger than 95% of normal "
+            "days; about 5% would happen by chance alone.\n"
+            "- **Runway** - months until the cash runs out at the recent spending rate. "
+            "**Cushion** - runway end minus the trial date, in months.\n"
+            "- **Overdue** - an open trial whose expected date passed without an update.")
+
+    if example is not None:
+        section("Worked example")
+        cap = money(example["market_cap"])
+        flags = example["flags"] if isinstance(example["flags"], str) else "none"
+        st.markdown(
+            f"1. In **1 CAL**, the highest-scoring upcoming trial is **{example['ticker']}** "
+            f"({example['lead_sponsor']}), score **{example['impact_score']:.1f}**, "
+            f"{example['phase']}, expected **{example['primary_completion_date']}**.\n"
+            f"2. Why so high: market cap {cap} ({size_group(example['market_cap']) or 'size unknown'}) and "
+            f"{int(example['open_trials_all_diseases'])} open trial(s) in all diseases, "
+            "so this result matters a lot to the company. Warnings: "
+            f"*{flags}*.\n"
+            f"3. In **2 CO**, pick {example['ticker']}: check the price against XBI, and "
+            "whether the cash lasts until the result.\n"
+            "4. In **3 EVT**, the 'small' line shows how companies of this size typically "
+            "moved around past trial completions.\n"
+            "5. Next step outside TOPLINE: read the company's latest SEC filing and press "
+            "releases for anything newer than this data.")
+
+    section("What TOPLINE can't tell you")
+    st.markdown(
+        "- Whether a trial will succeed, or which way the stock will move.\n"
+        "- The exact announcement date - expected dates often slip.\n"
+        "- Money raised after the latest quarterly filing (cash data can be months old).\n"
+        "- Companies that no longer exist: they're missing from the history "
+        "(survivorship bias), so past small-company moves look better than reality.")
+
+    section("When the data updates")
+    st.markdown(
+        f"Weekly. The current data is from **{meta.get('data_as_of')}** (shown in the "
+        "status bar). Prices and cash figures come from Yahoo Finance; trials from "
+        "ClinicalTrials.gov.")
+
+
 # --- page -----------------------------------------------------------------
 
 def status_bar(t, meta):
@@ -500,6 +706,8 @@ def status_bar(t, meta):
         f'<span class="item">{k} <b>{v}</b></span>' for k, v in items)
     html += '<span class="risk">NOT INVESTMENT ADVICE</span>'
     st.markdown(f'<div class="tl-bar">{html}</div>', unsafe_allow_html=True)
+    st.markdown('<div class="tl-hint">New here? Start with <b>6 HELP</b> for a guide '
+                'to every tab.</div>', unsafe_allow_html=True)
 
 
 def main():
@@ -513,7 +721,7 @@ def main():
 
     status_bar(t, meta)
     tabs = st.tabs(["1 CAL  CALENDAR", "2 CO  COMPANY", "3 EVT  EVENT STUDY",
-                    "4 SLIP  SLIPPAGE", "5 METH  METHOD"])
+                    "4 SLIP  SLIPPAGE", "5 METH  METHOD", "6 HELP  HOW TO USE"])
     with tabs[0]:
         calendar_tab(t)
     with tabs[1]:
@@ -524,6 +732,8 @@ def main():
         slippage_tab(t, meta)
     with tabs[4]:
         method_tab(meta)
+    with tabs[5]:
+        help_tab(t, meta)
     st.markdown(f'<div class="tl-note" style="border-top:1px solid #333;margin-top:16px;'
                 f'padding-top:4px">{DISCLAIMER}</div>', unsafe_allow_html=True)
 

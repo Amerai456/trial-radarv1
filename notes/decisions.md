@@ -107,3 +107,8 @@ Record important decisions and the reasoning behind them.
 - **Chart series colors:** amber #d07c00, blue #1e90ff, magenta #d43fbf, checked with a colorblind-safety validator on the black background (all pairs pass). Phases and size groups keep fixed colors.
 - **Signed numbers** (CAR, t-stat, cash cushion) are green when positive and red when negative, always with a +/- sign so color is never the only signal.
 - **Name: TOPLINE** ("top-line results" = a trial's first headline results; "top line" is also a finance term). Set in one place (`APP_NAME` in `app.py`). Confirmed 2026-11-12: README and CLAUDE.md now use TOPLINE. The GitHub repo name (`trial-radarv1`) and the Streamlit web address stay as they are.
+
+## 2026-11-12 - Fonts, How to use tab, friendlier layout
+- **Fonts:** IBM Plex Sans for text and IBM Plex Mono for numbers, the status bar and charts (free fonts loaded from Google Fonts through `.streamlit/config.toml`). Replaces Streamlit's default monospace. Text size 13 -> 14px.
+- **New tab "6 HELP - How to use"** (last, so visitors land on data first) with a hint under the status bar: quick start, each tab in detail, a glossary, a worked example built from the current top-scored trial, what TOPLINE can't tell you, and when data updates.
+- **Friendlier layout without an "AI-generated" look:** calendar filters in an outlined FILTERS box with a Reset button, outlined key-number blocks, one-line (?) tooltips on filters, numbers and key columns, and a one-line plain description above each chart. Deliberately no emojis, gradients, shadows, rounded cards, banners or marketing phrases.

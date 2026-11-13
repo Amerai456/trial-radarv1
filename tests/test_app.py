@@ -20,10 +20,21 @@ def test_dashboard_runs_without_errors(monkeypatch):
     monkeypatch.setenv("DASHBOARD_DB", str(REAL_DB))
     app = AppTest.from_file(APP, default_timeout=60).run()
     assert not app.exception
-    assert len(app.tabs) == 5
+    assert len(app.tabs) == 6
     # The disclaimer is shown in the status bar at the top and in the footer.
     text = " ".join(m.value for m in app.markdown).lower()
     assert text.count("not investment advice") >= 2
+
+
+def test_reset_filters_shows_everything_again(monkeypatch):
+    if not REAL_DB.exists():
+        pytest.skip("run python -m src.export first")
+    monkeypatch.setenv("DASHBOARD_DB", str(REAL_DB))
+    app = AppTest.from_file(APP, default_timeout=60).run()
+    app.slider(key="cal_min_score").set_value(90).run()
+    app.button[0].click().run()
+    assert not app.exception
+    assert app.slider(key="cal_min_score").value == 0
 
 
 def test_filters_that_match_nothing_do_not_crash(monkeypatch):

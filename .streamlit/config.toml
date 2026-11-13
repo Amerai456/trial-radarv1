@@ -1,5 +1,5 @@
 # Terminal-style look for the dashboard (TOPLINE).
-# Black screen, one monospace font, square corners, sharp colors, dense layout.
+# Black screen, IBM Plex fonts, square corners, sharp colors, dense layout.
 # Streamlit reads this file automatically, locally and on Streamlit Community Cloud.
 
 [theme]
@@ -11,10 +11,11 @@ primaryColor = "#ffa028"            # amber: highlights, active tab, sliders
 linkColor = "#1e90ff"
 linkUnderline = false
 
-font = "monospace"
-headingFont = "monospace"
-codeFont = "monospace"
-baseFontSize = 13
+# IBM Plex Sans for text, IBM Plex Mono for numbers (free fonts, loaded from Google Fonts).
+font = "IBM Plex Sans:https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap, sans-serif"
+headingFont = "IBM Plex Sans:https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap, sans-serif"
+codeFont = "IBM Plex Mono:https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap, monospace"
+baseFontSize = 14
 headingFontSizes = ["1.15rem", "1rem", "0.9rem", "0.85rem", "0.8rem", "0.75rem"]
 metricValueFontSize = "1.35rem"
 
