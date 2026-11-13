@@ -79,3 +79,11 @@ Record important decisions and the reasoning behind them.
 - **Sponsor reliability** (one row per ticker, or per sponsor name without a ticker): share of comparable trials delayed and median delay, shown only with at least **3** comparable trials; overdue-now count (open, estimated date already passed) always shown.
 - **Not part of the impact score for now.** Shown as a separate table; whether it should feed the score will be tested once months of history exist.
 - No new database table: calculated from `snapshots` and saved as `data/clean/slippage_{changes,trials,sponsors}_<date>.csv`.
+
+## 2026-11-12 - Dashboard (stage 6)
+- **The dashboard reads only `dashboard_data/dashboard.db`**, a small export (3.6 MB) made by `python -m src.export` and **committed to Git**, so the deployed app has data. The full `data/trials.db` (23 MB) stays local and git-ignored. Re-run the export and commit it after each weekly update.
+- **Prices in the export:** the last 5 years of daily adjusted prices for our tickers plus XBI.
+- **Five tabs:** catalyst calendar (default: upcoming, highest impact score first, all filters at "everything"), company view, event study, date slippage, method & limitations.
+- **New event-study chart:** average and median CAR for each trading day from -10 to +60 (added up from day -10), by company size at the time. The median is the default because a few huge winners pull the mean up.
+- **Disclaimer** at the top and bottom of the page (visible on every tab): "For educational purposes only. Not investment advice. Data from ClinicalTrials.gov and Yahoo Finance may be incomplete or delayed."
+- **Colors** are fixed per category (each phase and size group always keeps the same color, whatever the filter).

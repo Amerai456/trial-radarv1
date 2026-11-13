@@ -57,6 +57,7 @@ Run the pipeline in this order:
 2. `python -m src.store` (runs the cleaning itself; `python -m src.clean` only writes a CSV for checking)
 3. `python -m src.enrich` (matching + prices)
 4. `python -m src.analytics` (catalyst calendar), `python -m src.analytics events` (event study), `python -m src.analytics slippage` (date slippage; needs 2+ weekly snapshots)
+5. `python -m src.export` (writes `dashboard_data/dashboard.db` for the dashboard; commit it), then `streamlit run app.py`
 
 Other things to know:
 - **SEC ticker list:** it's saved by hand to `data/reference/company_tickers.json` because the SEC blocks the automatic download.
