@@ -44,9 +44,10 @@ app.py       Streamlit dashboard
 6. Present: Streamlit dashboard reading from the database. Include a "not investment advice" disclaimer.
 
 ## Current phase
-Phase: stage 5, Analyze (catalyst calendar + impact score, event study, date-slippage analysis). Plan each piece separately, because they carry the biggest design decisions (impact score, event dates, exclusion rules).
+Phase: stage 6, Present (Streamlit dashboard, then deployment and weekly GitHub Actions runs).
 
-Done so far (2026-11-11): stages 1-4 for obesity, type 1 diabetes and type 2 diabetes.
+Done so far: stages 1-5 for obesity, type 1 diabetes and type 2 diabetes.
+- Stage 5 (2026-11-12): catalyst calendar + impact score, event study vs XBI (538 events), and date slippage (waiting on a 2nd weekly snapshot). Results are written as CSVs to `data/clean/`. Key findings and limitations (survivorship bias, CAR below -100%) are in `notes/decisions.md` and `notes/data_quirks.md`.
 - 2,747 unique trials are in `data/trials.db`, with the first snapshot dated 2026-11-11.
 - 83 of 436 sponsors are matched to US tickers (62% of trials; 200 of 358 open trials). Table `sponsor_tickers`.
 - Daily prices from 2006 for 77 tickers + XBI are in table `prices`; today's market cap and thin-trading flags are in `ticker_info`.
